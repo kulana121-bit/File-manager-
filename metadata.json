@@ -1,0 +1,6 @@
+{
+  "name": "Files — Mobile File Manager & Drive Sync",
+  "description": "A soft cream styled file manager with internal/SD storage navigation, in-app file viewers, storage analyzer, and Google Drive sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
