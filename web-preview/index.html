@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Files — Mobile File Manager & Drive Sync Preview</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        appBlue: '#007AFF',
+                        appIndigo: '#5856D6',
+                        appRed: '#FF3B30',
+                        appGreen: '#34C759',
+                        appOrange: '#FF9500',
+                        creamBg: '#F9F6F0',
+                        creamCard: '#FFFFFF',
+                        creamDarkBg: '#121212',
+                        creamDarkCard: '#1E1E1E',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar hides */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* Custom transitions */
+        .smooth-transition {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+<body class="bg-slate-100 dark:bg-zinc-950 font-sans h-full flex flex-col items-center justify-center p-0 md:p-6 smooth-transition text-zinc-800 dark:text-zinc-200">
+
+    <!-- Device Frame Mockup -->
+    <div class="relative w-full max-w-md h-[844px] md:h-[812px] bg-white dark:bg-zinc-900 md:rounded-[40px] md:shadow-[0_24px_50px_rgba(0,0,0,0.15)] overflow-hidden flex flex-col border border-zinc-200 dark:border-zinc-800 smooth-transition">
+        
+        <!-- Status Bar (Simulated) -->
+        <div class="bg-creamBg dark:bg-zinc-900 px-6 pt-3 pb-2 flex justify-between items-center text-xs font-semibold z-30 select-none smooth-transition">
+            <span id="statusBarTime">09:41</span>
+            <div class="flex items-center space-x-2">
+                <i class="fas fa-signal"></i>
+                <i class="fas fa-wifi"></i>
+                <i class="fas fa-battery-three-quarters"></i>
+            </div>
+        </div>
+
+        <!-- Main Screen Wrapper -->
+        <div id="appContainer" class="flex-1 flex flex-col bg-creamBg dark:bg-zinc-950 overflow-hidden relative smooth-transition">
+            
+            <!-- VIEW 1: MAIN DASHBOARD -->
+            <div id="viewDashboard" class="flex-1 flex flex-col overflow-y-auto no-scrollbar pb-24">
+                
+                <!-- Samsung / iOS Style Large Header -->
+                <div class="px-6 pt-6 pb-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h1 class="text-3xl font-extrabold tracking-tight dark:text-white">Files</h1>
+                            <p class="text-sm text-zinc-500 dark:text-zinc-400">Mobile File Manager & Drive Sync</p>
+                        </div>
+                        <button onclick="toggleTheme()" class="w-10 h-10 rounded-full bg-white dark:bg-zinc-800 flex items-center justify-center shadow-sm text-zinc-600 dark:text-yellow-400 border border-zinc-200/50 dark:border-zinc-700/50 smooth-transition active:scale-95">
+                            <i id="themeIcon" class="fas fa-moon text-lg"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Premium Storage Usage Card -->
+                <div class="px-5 mb-6">
+                    <div class="bg-gradient-to-br from-indigo-500 to-appBlue rounded-3xl p-5 text-white shadow-lg shadow-appBlue/10 relative overflow-hidden">
+                        <div class="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-xl"></div>
+                        <div class="relative z-10">
+                            <div class="flex justify-between items-center mb-4">
+                                <span class="text-xs font-bold uppercase tracking-wider text-white/80">Device Storage</span>
+                                <span class="text-xs font-medium px-2 py-0.5 bg-white/20 rounded-full">One UI Active</span>
+                            </div>
+                            <h2 class="text-3xl font-extrabold mb-1">112 GB <span class="text-lg font-normal text-white/80">/ 256 GB</span></h2>
+                            <p class="text-xs text-white/70 mb-4">43.7% space occupied • Android System</p>
+                            
+                            <!-- Custom Progress Bar -->
+                            <div class="w-full bg-white/20 rounded-full h-2.5 overflow-hidden">
+                                <div class="bg-white h-full rounded-full smooth-transition" style="width: 43.7%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Horizontal Scrollable Category Chips -->
+                <div class="mb-6">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 px-6 mb-3">Categories</h3>
+                    <div class="flex space-x-3 overflow-x-auto px-6 no-scrollbar">
+                        
+                        <button onclick="openCategory('Images', 'images')" class="flex items-center space-x-2 px-4 py-2.5 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-full shadow-sm font-semibold text-sm flex-shrink-0 border border-rose-100/30 dark:border-rose-900/20 active:scale-95 smooth-transition">
+                            <i class="fas fa-image"></i>
+                            <span>Images</span>
+                        </button>
+
+                        <button onclick="openCategory('Videos', 'videos')" class="flex items-center space-x-2 px-4 py-2.5 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-full shadow-sm font-semibold text-sm flex-shrink-0 border border-purple-100/30 dark:border-purple-900/20 active:scale-95 smooth-transition">
+                            <i class="fas fa-video"></i>
+                            <span>Videos</span>
+                        </button>
+
+                        <button onclick="openCategory('Audio', 'audio')" class="flex items-center space-x-2 px-4 py-2.5 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 rounded-full shadow-sm font-semibold text-sm flex-shrink-0 border border-sky-100/30 dark:border-sky-900/20 active:scale-95 smooth-transition">
+                            <i class="fas fa-music"></i>
+                            <span>Audio</span>
+                        </button>
+
+                        <button onclick="openCategory('Documents', 'documents')" class="flex items-center space-x-2 px-4 py-2.5 bg-teal-50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-full shadow-sm font-semibold text-sm flex-shrink-0 border border-teal-100/30 dark:border-teal-900/20 active:scale-95 smooth-transition">
+                            <i class="fas fa-file-alt"></i>
+                            <span>Documents</span>
+                        </button>
+
+                        <button onclick="openCategory('Archives', 'archives')" class="flex items-center space-x-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 rounded-full shadow-sm font-semibold text-sm flex-shrink-0 border border-amber-100/30 dark:border-amber-900/20 active:scale-95 smooth-transition">
+                            <i class="fas fa-file-archive"></i>
+                            <span>Archives</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Internal/SD Card/Vault Storage Cards Grid -->
+                <div class="px-5 mb-6">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-3">Storage Devices</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        
+                        <!-- Internal Storage -->
+                        <div onclick="openExplorer('Internal Storage')" class="bg-white dark:bg-zinc-900 p-4 rounded-3xl border border-zinc-200/50 dark:border-zinc-800/50 shadow-sm cursor-pointer active:scale-[0.98] smooth-transition flex flex-col justify-between h-36">
+                            <div class="w-10 h-10 rounded-2xl bg-appBlue/10 text-appBlue flex items-center justify-center">
+                                <i class="fas fa-mobile-alt text-lg"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm dark:text-white">Internal Storage</h4>
+                                <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">112 GB / 256 GB</p>
+                            </div>
+                        </div>
+
+                        <!-- SD Card -->
+                        <div onclick="openExplorer('SD Card')" class="bg-white dark:bg-zinc-900 p-4 rounded-3xl border border-zinc-200/50 dark:border-zinc-800/50 shadow-sm cursor-pointer active:scale-[0.98] smooth-transition flex flex-col justify-between h-36">
+                            <div class="w-10 h-10 rounded-2xl bg-appGreen/10 text-appGreen flex items-center justify-center">
+                                <i class="fas fa-sd-card text-lg"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm dark:text-white">SD Card</h4>
+                                <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">14 GB / 64 GB</p>
+                            </div>
+                        </div>
+
+                        <!-- Private Vault -->
+                        <div onclick="openVaultPIN()" class="bg-white dark:bg-zinc-900 p-4 rounded-3xl border border-zinc-200/50 dark:border-zinc-800/50 shadow-sm cursor-pointer active:scale-[0.98] smooth-transition flex flex-col justify-between h-36">
+                            <div class="w-10 h-10 rounded-2xl bg-appRed/10 text-appRed flex items-center justify-center">
+                                <i class="fas fa-user-shield text-lg"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm dark:text-white">Private Vault</h4>
+                                <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1">PIN Encrypted • AES</p>
+                            </div>
+                        </div>
+
+                        <!-- Google Drive -->
+                        <div onclick="switchTab('drive')" class="bg-white dark:bg-zinc-900 p-4 rounded-3xl border border-zinc-200/50 dark:border-zinc-800/50 shadow-sm cursor-pointer active:scale-[0.98] smooth-transition flex flex-col justify-between h-36">
+                            <div class="w-10 h-10 rounded-2xl bg-appOrange/10 text-appOrange flex items-center justify-center">
+                                <i class="fab fa-google-drive text-lg"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm dark:text-white">Google Drive</h4>
+                                <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-1" id="driveCardStatus">Disconnected</p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Storage Analyzer Quick Summary Card -->
+                <div class="px-5">
+                    <div class="bg-white dark:bg-zinc-900 p-4 rounded-3xl border border-zinc-200/50 dark:border-zinc-800/50 shadow-sm flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-11 h-11 rounded-2xl bg-appIndigo/10 text-appIndigo flex items-center justify-center">
+                                <i class="fas fa-chart-pie text-lg"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm dark:text-white">Storage Analyzer</h4>
+                                <p class="text-xs text-zinc-400 dark:text-zinc-500">Scan large files and clear cache</p>
+                            </div>
+                        </div>
+                        <button onclick="showToast('Storage Analyzer triggered!')" class="text-xs font-bold text-appBlue bg-appBlue/10 hover:bg-appBlue/25 px-3 py-1.5 rounded-xl smooth-transition">Analyze</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- VIEW 2: STORAGE EXPLORER -->
+            <div id="viewExplorer" class="hidden flex-1 flex flex-col overflow-hidden">
+                <!-- Explorer Header -->
+                <div class="bg-white dark:bg-zinc-900 px-5 py-4 flex items-center justify-between border-b border-zinc-200/50 dark:border-zinc-800/50 smooth-transition">
+                    <div class="flex items-center space-x-3">
+                        <button onclick="goBack()" class="w-9 h-9 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-700 dark:text-zinc-300 active:scale-90 smooth-transition">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <div>
+                            <h2 id="explorerTitle" class="font-bold text-lg dark:text-white">Internal Storage</h2>
+                            <p id="explorerSubtitle" class="text-xs text-zinc-400 dark:text-zinc-500">Root Directory</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="showCreateDialog()" class="w-9 h-9 rounded-full bg-appBlue/10 text-appBlue flex items-center justify-center active:scale-90 smooth-transition" title="Create File/Folder">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- File/Folder Browser list -->
+                <div id="explorerList" class="flex-1 overflow-y-auto p-5 space-y-3 no-scrollbar">
+                    <!-- Dynamic Items Inject here -->
+                </div>
+            </div>
+
+            <!-- VIEW 3: PRIVATE VAULT -->
+            <div id="viewVault" class="hidden flex-1 flex flex-col bg-zinc-950 overflow-hidden text-white">
+                <!-- Vault Header -->
+                <div class="bg-zinc-900/50 px-5 py-4 flex items-center justify-between border-b border-zinc-800">
+                    <div class="flex items-center space-x-3">
+                        <button onclick="exitVault()" class="w-9 h-9 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-300 active:scale-90 smooth-transition">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <div>
+                            <h2 class="font-bold text-lg text-white">Private Vault</h2>
+                            <p class="text-xs text-rose-500 font-semibold"><i class="fas fa-lock mr-1"></i>AES-256 Secured</p>
+                        </div>
+                    </div>
+                    <button onclick="exitVault()" class="text-sm font-semibold text-zinc-400 hover:text-white">Lock</button>
+                </div>
+
+                <!-- Vault File Browser List -->
+                <div class="flex-1 overflow-y-auto p-5 space-y-3 no-scrollbar">
+                    <div class="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 flex items-start space-x-3 mb-2">
+                        <i class="fas fa-shield-halved text-rose-500 text-lg mt-0.5"></i>
+                        <p class="text-xs text-rose-300 leading-relaxed">Files in Private Vault are decrypted into memory temporary only during premium preview. Cache is securely wiped upon dismissal.</p>
+                    </div>
+
+                    <div id="vaultList" class="space-y-3">
+                        <!-- Vault Items -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW 4: GOOGLE DRIVE TAB -->
+            <div id="viewDrive" class="hidden flex-1 flex flex-col overflow-y-auto p-5 pb-24 no-scrollbar">
+                
+                <div class="pt-4 pb-4">
+                    <h1 class="text-3xl font-extrabold tracking-tight dark:text-white">Google Drive</h1>
+                    <p class="text-sm text-zinc-500 dark:text-zinc-400">Sync with your cloud files safely</p>
+                </div>
+
+                <!-- STATE A: SIGNED OUT -->
+                <div id="driveSignedOut" class="flex-grow flex flex-col items-center justify-center py-12 px-6">
+                    <div class="w-20 h-20 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mb-6">
+                        <i class="fab fa-google-drive text-4xl"></i>
+                    </div>
+                    <h3 class="font-bold text-lg text-center dark:text-white mb-2">Connect Google Drive</h3>
+                    <p class="text-xs text-zinc-400 dark:text-zinc-500 text-center leading-relaxed max-w-xs mb-8">Access all of your cloud files, download, preview, and sync folders. Secure authorization protocol.</p>
+                    
+                    <!-- Premium Sign In Button -->
+                    <button onclick="signInDrive()" class="w-full max-w-xs bg-white hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 font-bold py-3 px-6 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 flex items-center justify-center space-x-3 active:scale-[0.98] smooth-transition">
+                        <svg class="w-5 h-5" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.79z"/>
+                            <path fill="#34A853" d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.15C3.27 21.85 7.43 24 12 24z"/>
+                            <path fill="#FBBC05" d="M5.27 14.24A7.18 7.18 0 0 1 5 12c0-.79.13-1.57.38-2.31V6.54H1.29a11.94 11.94 0 0 0 0 10.92l3.98-3.22z"/>
+                            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.43 0 3.27 2.15 1.29 5.4l3.98 3.15c.95-2.85 3.6-4.96 6.73-4.96z"/>
+                        </svg>
+                        <span>Connect Google Account</span>
+                    </button>
+                </div>
+
+                <!-- STATE B: CONNECTED & SYNCED -->
+                <div id="driveSignedIn" class="hidden space-y-4">
+                    <div class="bg-white dark:bg-zinc-900 p-4 rounded-3xl border border-zinc-200/50 dark:border-zinc-800/50 shadow-sm flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                                <i class="fas fa-user-circle text-xl text-zinc-500"></i>
+                            </div>
+                            <div>
+                                <h4 id="driveUserEmail" class="font-bold text-sm dark:text-white">cloud.files@gmail.com</h4>
+                                <p class="text-xs text-appGreen font-semibold"><i class="fas fa-check-circle mr-1"></i>Securely Linked</p>
+                            </div>
+                        </div>
+                        <button onclick="signOutDrive()" class="text-xs font-bold text-zinc-400 hover:text-appRed bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 rounded-xl smooth-transition">Disconnect</button>
+                    </div>
+
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mt-6 mb-2">Cloud Files Browser</h3>
+                    <div id="driveFilesList" class="space-y-3">
+                        <!-- Cloud files injected -->
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- PIN DIALOG FOR PRIVATE VAULT -->
+            <div id="vaultPinOverlay" class="hidden absolute inset-0 bg-black/95 z-50 flex flex-col justify-center items-center text-white px-6">
+                <div class="text-center mb-8">
+                    <div class="w-16 h-16 bg-rose-500/15 rounded-3xl text-rose-500 flex items-center justify-center mx-auto mb-4 border border-rose-500/20">
+                        <i class="fas fa-lock text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-bold">Secure Private Vault</h3>
+                    <p class="text-xs text-zinc-400 mt-1">Enter 4-Digit Security PIN (Default is 1234)</p>
+                </div>
+
+                <!-- PIN Bullets -->
+                <div class="flex space-x-4 mb-12">
+                    <div id="pinCircle1" class="w-3.5 h-3.5 rounded-full border-2 border-zinc-500 smooth-transition"></div>
+                    <div id="pinCircle2" class="w-3.5 h-3.5 rounded-full border-2 border-zinc-500 smooth-transition"></div>
+                    <div id="pinCircle3" class="w-3.5 h-3.5 rounded-full border-2 border-zinc-500 smooth-transition"></div>
+                    <div id="pinCircle4" class="w-3.5 h-3.5 rounded-full border-2 border-zinc-500 smooth-transition"></div>
+                </div>
+
+                <!-- PIN keypad -->
+                <div class="grid grid-cols-3 gap-6 max-w-xs w-full mb-6">
+                    <button onclick="pressPin('1')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">1</button>
+                    <button onclick="pressPin('2')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">2</button>
+                    <button onclick="pressPin('3')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">3</button>
+                    <button onclick="pressPin('4')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">4</button>
+                    <button onclick="pressPin('5')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">5</button>
+                    <button onclick="pressPin('6')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">6</button>
+                    <button onclick="pressPin('7')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">7</button>
+                    <button onclick="pressPin('8')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">8</button>
+                    <button onclick="pressPin('9')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">9</button>
+                    <button onclick="cancelVaultPIN()" class="w-16 h-16 rounded-full flex items-center justify-center text-xs font-semibold text-zinc-400 hover:text-white mx-auto active:scale-90 smooth-transition">Cancel</button>
+                    <button onclick="pressPin('0')" class="w-16 h-16 rounded-full bg-zinc-900 hover:bg-zinc-800 text-xl font-bold flex items-center justify-center mx-auto active:scale-90 smooth-transition">0</button>
+                    <button onclick="deletePin()" class="w-16 h-16 rounded-full flex items-center justify-center text-zinc-400 hover:text-white mx-auto active:scale-90 smooth-transition"><i class="fas fa-backspace"></i></button>
+                </div>
+            </div>
+
+            <!-- PREMIUM IMAGE VIEWER DIALOG -->
+            <div id="imageViewerDialog" class="hidden absolute inset-0 bg-black z-[60] flex flex-col justify-between">
+                <!-- Top Actions -->
+                <div class="bg-black/60 px-5 py-4 flex justify-between items-center text-white">
+                    <button onclick="closeViewer('imageViewerDialog')" class="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center active:scale-90 smooth-transition">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <span id="imageViewerTitle" class="font-bold text-sm">Image Preview</span>
+                    <div class="flex space-x-3">
+                        <button onclick="showToast('Shared successfully!')" class="text-zinc-200"><i class="fas fa-share-nodes"></i></button>
+                        <button onclick="showToast('Opening external photo editor...')" class="text-zinc-200"><i class="fas fa-edit"></i></button>
+                    </div>
+                </div>
+                <!-- Image Frame -->
+                <div class="flex-1 flex items-center justify-center p-4">
+                    <img id="imageViewerSrc" class="max-w-full max-h-[550px] object-contain rounded-2xl shadow-xl transition-transform" src="" alt="Viewer">
+                </div>
+                <!-- Controls info -->
+                <div class="bg-black/80 px-6 py-4 text-center text-xs text-zinc-400 leading-relaxed border-t border-zinc-800/40">
+                    <p id="imageMetadata">Resolution: 1920x1080 • Size: 2.1 MB</p>
+                    <p class="text-[10px] mt-0.5 text-zinc-500">Dual-finger pinch to zoom enabled</p>
+                </div>
+            </div>
+
+            <!-- PREMIUM VIDEO PLAYER DIALOG -->
+            <div id="videoPlayerDialog" class="hidden absolute inset-0 bg-black z-[60] flex flex-col justify-between">
+                <!-- Top Actions -->
+                <div class="bg-black/60 px-5 py-4 flex justify-between items-center text-white">
+                    <span id="videoPlayerTitle" class="font-bold text-sm">Video Player</span>
+                    <button onclick="closeViewer('videoPlayerDialog')" class="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center active:scale-90 smooth-transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <!-- Player area (Simulated video) -->
+                <div class="flex-1 flex flex-col items-center justify-center relative">
+                    <div class="text-center">
+                        <i class="fas fa-video text-6xl text-zinc-700 animate-pulse mb-4"></i>
+                        <h4 id="videoFileName" class="text-sm font-bold text-zinc-400">Cinematic_Shot.mp4</h4>
+                    </div>
+                    <!-- Center Play/Skip Buttons -->
+                    <div class="absolute inset-x-0 flex justify-center items-center space-x-8 text-white">
+                        <button onclick="seekVideo(-10)" class="w-12 h-12 bg-black/60 hover:bg-black/80 rounded-full flex flex-col justify-center items-center active:scale-90 smooth-transition">
+                            <i class="fas fa-backward text-sm"></i><span class="text-[8px] font-bold mt-0.5">-10s</span>
+                        </button>
+                        <button onclick="togglePlayVideo()" class="w-16 h-16 bg-white text-black rounded-full flex items-center justify-center shadow-lg active:scale-90 smooth-transition">
+                            <i id="videoPlayIcon" class="fas fa-play text-2xl"></i>
+                        </button>
+                        <button onclick="seekVideo(10)" class="w-12 h-12 bg-black/60 hover:bg-black/80 rounded-full flex flex-col justify-center items-center active:scale-90 smooth-transition">
+                            <i class="fas fa-forward text-sm"></i><span class="text-[8px] font-bold mt-0.5">+10s</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bottom Progress controls -->
+                <div class="bg-black/60 p-5 space-y-3">
+                    <div class="flex justify-between text-xs text-white">
+                        <span id="videoElapsedTime">00:08</span>
+                        <div class="flex items-center space-x-2">
+                            <span id="videoTotalTime">02:34</span>
+                            <button onclick="toggleVideoFullscreen()" class="ml-2 text-white"><i class="fas fa-expand"></i></button>
+                        </div>
+                    </div>
+                    <!-- Custom progress slider -->
+                    <div class="w-full bg-white/20 rounded-full h-1 relative overflow-hidden">
+                        <div class="bg-appBlue h-full rounded-full" style="width: 15%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PREMIUM PDF READER DIALOG -->
+            <div id="pdfViewerDialog" class="hidden absolute inset-0 bg-zinc-50 z-[60] flex flex-col">
+                <div class="bg-zinc-100 px-5 py-4 flex justify-between items-center text-zinc-800 border-b border-zinc-200">
+                    <button onclick="closeViewer('pdfViewerDialog')" class="w-9 h-9 rounded-full hover:bg-zinc-200 flex items-center justify-center active:scale-90 smooth-transition">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <span id="pdfTitle" class="font-bold text-sm">document.pdf</span>
+                    <button onclick="showToast('Shared PDF File')" class="w-9 h-9 rounded-full text-appBlue flex items-center justify-center"><i class="fas fa-share"></i></button>
+                </div>
+                <!-- Render Body (Simulated pdf page) -->
+                <div class="flex-grow bg-zinc-300 p-6 flex flex-col items-center justify-center relative">
+                    <div class="bg-white rounded-xl shadow-lg p-6 max-w-sm w-full h-80 flex flex-col justify-between">
+                        <div>
+                            <h3 class="text-lg font-bold text-zinc-800 mb-2">Google AI Studio Guide</h3>
+                            <p class="text-xs text-zinc-400 leading-relaxed">This PDF viewer utilizes asynchronous dispatchers memory mapping for crisp, delay-free viewing on mobile. All page indexes render on-the-fly perfectly.</p>
+                        </div>
+                        <div class="border-t border-zinc-100 pt-3 text-right">
+                            <span class="text-[10px] font-bold text-appBlue">Confidential Draft</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Bottom controls -->
+                <div class="bg-zinc-100 py-3 px-6 flex justify-between items-center border-t border-zinc-200">
+                    <button class="text-appBlue text-sm font-bold"><i class="fas fa-chevron-left mr-1"></i>Previous</button>
+                    <span class="text-xs font-bold text-zinc-600">Page 1 of 12</span>
+                    <button class="text-appBlue text-sm font-bold">Next<i class="fas fa-chevron-right ml-1"></i></button>
+                </div>
+            </div>
+
+            <!-- PREMIUM AUDIO PLAYER DIALOG (MINI-PLAYER) -->
+            <div id="audioPlayerDialog" class="hidden absolute bottom-20 inset-x-4 bg-white/95 dark:bg-zinc-900/95 shadow-xl border border-zinc-200/50 dark:border-zinc-800/50 rounded-3xl p-4 z-40 smooth-transition backdrop-blur-md">
+                <div class="flex items-center space-x-4">
+                    <!-- Rotating Vinyl Album cover disk -->
+                    <div class="w-12 h-12 rounded-full bg-gradient-to-tr from-appBlue to-indigo-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/10 animate-spin" style="animation-duration: 6s;">
+                        <i class="fas fa-music text-lg"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h4 id="audioTitle" class="text-sm font-bold truncate dark:text-white">Song_Track.mp3</h4>
+                        <div class="w-full bg-zinc-200 dark:bg-zinc-700 h-1 rounded-full mt-2 relative overflow-hidden">
+                            <div class="bg-appBlue h-full rounded-full" style="width: 33%"></div>
+                        </div>
+                    </div>
+                    <!-- Controls -->
+                    <div class="flex items-center space-x-2">
+                        <button onclick="showToast('Rewinding...')" class="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-600"><i class="fas fa-backward text-xs"></i></button>
+                        <button onclick="togglePlayAudio()" class="w-10 h-10 bg-appBlue text-white rounded-full flex items-center justify-center shadow-md shadow-appBlue/15 active:scale-95 smooth-transition"><i id="audioPlayIcon" class="fas fa-pause text-xs"></i></button>
+                        <button onclick="closeViewer('audioPlayerDialog')" class="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-appRed"><i class="fas fa-times text-xs"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ZIP COMPRESSION / EXTRACTION INTERVIEWER -->
+            <div id="zipViewerDialog" class="hidden absolute inset-0 bg-zinc-50 dark:bg-zinc-950 z-[60] flex flex-col">
+                <div class="bg-zinc-100 dark:bg-zinc-900 px-5 py-4 flex justify-between items-center text-zinc-800 dark:text-white border-b border-zinc-200/50 dark:border-zinc-800">
+                    <div class="flex items-center space-x-3">
+                        <button onclick="closeViewer('zipViewerDialog')" class="w-9 h-9 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center active:scale-90 smooth-transition">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <div>
+                            <span id="zipTitle" class="font-bold text-sm">archive.zip</span>
+                            <p class="text-[10px] text-zinc-400">Virtual tree list (no extraction)</p>
+                        </div>
+                    </div>
+                    <button onclick="showToast('Extracted all items successfully')" class="bg-appBlue text-white text-xs font-bold px-3 py-1.5 rounded-xl smooth-transition">Extract All</button>
+                </div>
+                <div id="zipList" class="flex-grow p-5 space-y-3 overflow-y-auto no-scrollbar">
+                    <!-- Virtual Zip Items list -->
+                </div>
+            </div>
+
+            <!-- TAB BOTTOM NAVIGATION -->
+            <div class="absolute bottom-0 inset-x-0 bg-white/90 dark:bg-zinc-900/90 border-t border-zinc-200/50 dark:border-zinc-800/50 flex justify-around items-center py-3 z-30 smooth-transition backdrop-blur-md">
+                
+                <button onclick="switchTab('dashboard')" id="tabBtnDashboard" class="flex flex-col items-center space-y-1 text-appBlue smooth-transition">
+                    <i class="fas fa-window-restore text-lg"></i>
+                    <span class="text-[10px] font-bold">Explorer</span>
+                </button>
+
+                <button onclick="switchTab('drive')" id="tabBtnDrive" class="flex flex-col items-center space-y-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 smooth-transition">
+                    <i class="fab fa-google-drive text-lg"></i>
+                    <span class="text-[10px] font-bold">Drive</span>
+                </button>
+
+                <button onclick="switchTab('more')" id="tabBtnMore" class="flex flex-col items-center space-y-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 smooth-transition">
+                    <i class="fas fa-sliders text-lg"></i>
+                    <span class="text-[10px] font-bold">Settings</span>
+                </button>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- CREATE FILE/FOLDER DIALOG MOCKUP -->
+    <div id="createDialog" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 backdrop-blur-sm">
+        <div class="bg-white dark:bg-zinc-900 p-6 rounded-3xl w-full max-w-sm border border-zinc-200/60 dark:border-zinc-800/60 shadow-xl smooth-transition">
+            <h3 class="font-extrabold text-lg mb-2 dark:text-white">Create New</h3>
+            <p class="text-xs text-zinc-400 dark:text-zinc-500 mb-4">Add folder directory or blank file directly in internal memory.</p>
+            
+            <div class="space-y-4 mb-6">
+                <div>
+                    <label class="block text-xs font-bold text-zinc-400 uppercase mb-2">Item Type</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button id="typeFolderBtn" onclick="setCreateType('folder')" class="py-2 px-4 rounded-xl font-bold text-xs bg-appBlue text-white border border-appBlue smooth-transition">Folder</button>
+                        <button id="typeFileBtn" onclick="setCreateType('file')" class="py-2 px-4 rounded-xl font-bold text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-transparent smooth-transition">File (.txt)</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-zinc-400 uppercase mb-2">Name</label>
+                    <input id="createInputName" type="text" placeholder="Enter name" class="w-full bg-zinc-100 dark:bg-zinc-800 border-0 outline-none p-3 rounded-xl text-sm font-semibold dark:text-white focus:ring-2 focus:ring-appBlue/40">
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeCreateDialog()" class="px-4 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 smooth-transition">Cancel</button>
+                <button onclick="confirmCreate()" class="px-5 py-2.5 bg-appBlue hover:bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md shadow-appBlue/15 smooth-transition">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GENERAL GLOBAL TOAST -->
+    <div id="toast" class="opacity-0 translate-y-4 pointer-events-none fixed bottom-6 bg-zinc-900 dark:bg-zinc-800 text-white font-bold text-xs px-4 py-3 rounded-2xl shadow-xl z-50 flex items-center space-x-2 transition-all duration-300">
+        <i class="fas fa-circle-info text-appBlue"></i>
+        <span id="toastMsg">Action successfully performed</span>
+    </div>
+
+    <!-- SCRIPT PREVIEW LOGIC -->
+    <script>
+        // Set Time
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+            document.getElementById('statusBarTime').innerText = timeStr;
+        }
+        setInterval(updateTime, 10000);
+        updateTime();
+
+        // App States
+        let isDarkMode = false;
+        let isDriveConnected = false;
+        let activeTab = 'dashboard';
+        let currentPath = '';
+        let createType = 'folder';
+
+        // File and Folder Mocks
+        const mockFolders = {
+            'Internal Storage': [
+                { name: 'DCIM', isDirectory: true, itemsCount: 4 },
+                { name: 'Documents', isDirectory: true, itemsCount: 3 },
+                { name: 'Downloads', isDirectory: true, itemsCount: 5 },
+                { name: 'Music', isDirectory: true, itemsCount: 2 },
+                { name: 'System_Report.pdf', isDirectory: false, size: '1.4 MB', type: 'pdf' },
+                { name: 'Interactive_Demo.html', isDirectory: false, size: '42 KB', type: 'html' },
+                { name: 'archive_backup.zip', isDirectory: false, size: '12.8 MB', type: 'zip' }
+            ],
+            'Internal Storage/DCIM': [
+                { name: 'Camera', isDirectory: true, itemsCount: 2 },
+                { name: 'Screenshots', isDirectory: true, itemsCount: 1 }
+            ],
+            'Internal Storage/DCIM/Camera': [
+                { name: 'IMG_4281.jpg', isDirectory: false, size: '2.1 MB', type: 'image', src: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&auto=format&fit=crop&q=60' },
+                { name: 'VID_202610.mp4', isDirectory: false, size: '15.4 MB', type: 'video' }
+            ],
+            'Internal Storage/DCIM/Screenshots': [
+                { name: 'Screenshot_Dashboard.png', isDirectory: false, size: '480 KB', type: 'image', src: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=60' }
+            ],
+            'Internal Storage/Documents': [
+                { name: 'Project_Overview.pdf', isDirectory: false, size: '890 KB', type: 'pdf' },
+                { name: 'Finance_Sheet.csv', isDirectory: false, size: '12 KB', type: 'csv' },
+                { name: 'Notes.md', isDirectory: false, size: '3 KB', type: 'markdown' }
+            ],
+            'Internal Storage/Music': [
+                { name: 'Summer_Vibe.mp3', isDirectory: false, size: '4.8 MB', type: 'audio' },
+                { name: 'Podcast_Episode_12.mp3', isDirectory: false, size: '28.1 MB', type: 'audio' }
+            ],
+            'Internal Storage/Downloads': [
+                { name: 'setup_wizard.apk', isDirectory: false, size: '34 MB', type: 'apk' },
+                { name: 'Presentation.epub', isDirectory: false, size: '1.8 MB', type: 'epub' },
+                { name: 'Recipe.txt', isDirectory: false, size: '4 KB', type: 'txt' }
+            ],
+            'SD Card': [
+                { name: 'Backups', isDirectory: true, itemsCount: 1 },
+                { name: 'Travel_Vlog.mp4', isDirectory: false, size: '48.9 MB', type: 'video' },
+                { name: 'Nature_Photo.jpg', isDirectory: false, size: '3.4 MB', type: 'image', src: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800&auto=format&fit=crop&q=60' }
+            ],
+            'SD Card/Backups': [
+                { name: 'contacts_vcard.vcf', isDirectory: false, size: '120 KB', type: 'txt' }
+            ]
+        };
+
+        const mockVaultFiles = [
+            { name: 'Personal_Passcodes.txt', size: '2 KB', type: 'txt' },
+            { name: 'Confidential_Contract.pdf', size: '2.8 MB', type: 'pdf' },
+            { name: 'Private_Selfie.jpg', size: '1.8 MB', type: 'image', src: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=800&auto=format&fit=crop&q=60' }
+        ];
+
+        const mockDriveFiles = [
+            { name: 'Cloud_Architecture.pdf', size: '3.4 MB', type: 'pdf' },
+            { name: 'Google_Sheets_Planning.csv', size: '80 KB', type: 'csv' },
+            { name: 'Drive_Video_Upload.mp4', size: '18.2 MB', type: 'video' },
+            { name: 'Shared_Banner.webp', size: '1.2 MB', type: 'image', src: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?w=800&auto=format&fit=crop&q=60' }
+        ];
+
+        const mockZipVirtualItems = [
+            { name: 'assets/', isDirectory: true, size: 0 },
+            { name: 'assets/logo.png', isDirectory: false, size: '120 KB' },
+            { name: 'index.html', isDirectory: false, size: '45 KB' },
+            { name: 'style.css', isDirectory: false, size: '8 KB' },
+            { name: 'main.js', isDirectory: false, size: '12 KB' }
+        ];
+
+        // Global Toast Trigger
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            toast.classList.remove('opacity-0', 'translate-y-4', 'pointer-events-none');
+            toast.classList.add('opacity-100', 'translate-y-0');
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-4', 'pointer-events-none');
+            }, 2500);
+        }
+
+        // Toggle Dark/Light Theme
+        function toggleTheme() {
+            const root = document.documentElement;
+            const themeIcon = document.getElementById('themeIcon');
+            isDarkMode = !isDarkMode;
+            if (isDarkMode) {
+                root.classList.add('dark');
+                themeIcon.className = 'fas fa-sun text-lg';
+                showToast('Switched to Dark Mode');
+            } else {
+                root.classList.remove('dark');
+                themeIcon.className = 'fas fa-moon text-lg';
+                showToast('Switched to Light Mode');
+            }
+        }
+
+        // Switch bottom tab
+        function switchTab(tab) {
+            activeTab = tab;
+            
+            // Hide all views first
+            document.getElementById('viewDashboard').classList.add('hidden');
+            document.getElementById('viewExplorer').classList.add('hidden');
+            document.getElementById('viewVault').classList.add('hidden');
+            document.getElementById('viewDrive').classList.add('hidden');
+
+            // Reset navigation tab button highlights
+            document.getElementById('tabBtnDashboard').className = 'flex flex-col items-center space-y-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 smooth-transition';
+            document.getElementById('tabBtnDrive').className = 'flex flex-col items-center space-y-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 smooth-transition';
+            document.getElementById('tabBtnMore').className = 'flex flex-col items-center space-y-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 smooth-transition';
+
+            if (tab === 'dashboard') {
+                document.getElementById('viewDashboard').classList.remove('hidden');
+                document.getElementById('tabBtnDashboard').className = 'flex flex-col items-center space-y-1 text-appBlue smooth-transition';
+            } else if (tab === 'drive') {
+                document.getElementById('viewDrive').classList.remove('hidden');
+                document.getElementById('tabBtnDrive').className = 'flex flex-col items-center space-y-1 text-appBlue smooth-transition';
+                renderDrive();
+            } else if (tab === 'more') {
+                // Settings - for visual mockup, let's just trigger Storage analyzer alert or stay on explorer
+                document.getElementById('viewDashboard').classList.remove('hidden');
+                document.getElementById('tabBtnDashboard').className = 'flex flex-col items-center space-y-1 text-appBlue smooth-transition';
+                showToast('Device info: 112 GB used • 144 GB free space');
+            }
+        }
+
+        // Open file explorer
+        function openExplorer(driveName) {
+            currentPath = driveName;
+            document.getElementById('viewDashboard').classList.add('hidden');
+            document.getElementById('viewExplorer').classList.remove('hidden');
+            renderExplorer();
+        }
+
+        function goBack() {
+            if (!currentPath) {
+                switchTab('dashboard');
+                return;
+            }
+            const parts = currentPath.split('/');
+            parts.pop();
+            currentPath = parts.join('/');
+            if (!currentPath) {
+                switchTab('dashboard');
+            } else {
+                renderExplorer();
+            }
+        }
+
+        // Category Filter list opens
+        function openCategory(title, type) {
+            currentPath = `Internal Storage`; // category filters the internal storage recursively
+            document.getElementById('viewDashboard').classList.add('hidden');
+            document.getElementById('viewExplorer').classList.remove('hidden');
+            renderExplorer(type);
+        }
+
+        // Render File Browser List
+        function renderExplorer(filterType = null) {
+            const titleEl = document.getElementById('explorerTitle');
+            const subtitleEl = document.getElementById('explorerSubtitle');
+            const listEl = document.getElementById('explorerList');
+
+            titleEl.innerText = currentPath.split('/').pop();
+            subtitleEl.innerText = `Folder: Root / ${currentPath}`;
+
+            listEl.innerHTML = '';
+
+            const items = mockFolders[currentPath] || [];
+            
+            // Filter recursively if category selected
+            let renderItems = [...items];
+            if (filterType) {
+                titleEl.innerText = filterType.charAt(0).toUpperCase() + filterType.slice(1);
+                subtitleEl.innerText = `Filtered scanning of Internal Storage recursive`;
+                
+                // Collect all files from mockFolders recursively
+                renderItems = [];
+                Object.keys(mockFolders).forEach(key => {
+                    mockFolders[key].forEach(f => {
+                        if (!f.isDirectory) {
+                            if (filterType === 'images' && f.type === 'image') renderItems.push(f);
+                            if (filterType === 'videos' && (f.type === 'video' || f.type === 'mp4')) renderItems.push(f);
+                            if (filterType === 'audio' && f.type === 'audio') renderItems.push(f);
+                            if (filterType === 'documents' && (f.type === 'pdf' || f.type === 'csv' || f.type === 'markdown' || f.type === 'epub' || f.type === 'txt')) renderItems.push(f);
+                            if (filterType === 'archives' && f.type === 'zip') renderItems.push(f);
+                        }
+                    });
+                });
+            }
+
+            if (renderItems.length === 0) {
+                listEl.innerHTML = `
+                    <div class="text-center py-12 flex flex-col items-center">
+                        <i class="fas fa-folder-open text-4xl text-zinc-300 dark:text-zinc-700 mb-2"></i>
+                        <p class="text-sm text-zinc-400">This directory is empty</p>
+                    </div>
+                `;
+                return;
+            }
+
+            renderItems.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/50 p-4 shadow-sm flex items-center justify-between cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 smooth-transition";
+                
+                let iconClass = "fa-folder text-amber-500 bg-amber-500/10";
+                if (!item.isDirectory) {
+                    if (item.type === 'image') iconClass = "fa-image text-rose-500 bg-rose-500/10";
+                    else if (item.type === 'video') iconClass = "fa-video text-purple-500 bg-purple-500/10";
+                    else if (item.type === 'audio') iconClass = "fa-music text-sky-500 bg-sky-500/10";
+                    else if (item.type === 'pdf') iconClass = "fa-file-pdf text-red-500 bg-red-500/10";
+                    else if (item.type === 'html') iconClass = "fa-code text-indigo-500 bg-indigo-500/10";
+                    else if (item.type === 'zip') iconClass = "fa-file-archive text-amber-500 bg-amber-500/10";
+                    else iconClass = "fa-file-alt text-zinc-500 bg-zinc-500/10";
+                }
+
+                card.innerHTML = `
+                    <div class="flex items-center space-x-3.5 flex-1 min-w-0" onclick="handleItemTap('${item.name}', ${item.isDirectory}, '${item.type || ''}', '${item.src || ''}')">
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg ${iconClass.split(' ').slice(1).join(' ')}">
+                            <i class="fas ${iconClass.split(' ')[0]}"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h4 class="font-bold text-sm dark:text-white truncate">${item.name}</h4>
+                            <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">${item.isDirectory ? `${item.itemsCount} items` : item.size}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-1">
+                        <button onclick="renameItem('${item.name}')" class="w-8 h-8 rounded-full text-zinc-400 hover:text-appBlue hover:bg-appBlue/5 flex items-center justify-center smooth-transition"><i class="fas fa-pen text-xs"></i></button>
+                        <button onclick="deleteItem('${item.name}')" class="w-8 h-8 rounded-full text-zinc-400 hover:text-appRed hover:bg-appRed/5 flex items-center justify-center smooth-transition"><i class="fas fa-trash-can text-xs"></i></button>
+                    </div>
+                `;
+                listEl.appendChild(card);
+            });
+        }
+
+        // Tapping explorer file or folder
+        function handleItemTap(name, isDirectory, type, src) {
+            if (isDirectory) {
+                currentPath = `${currentPath}/${name}`;
+                renderExplorer();
+            } else {
+                openPremiumViewer(name, type, src);
+            }
+        }
+
+        // Opening Premium Viewers
+        function openPremiumViewer(name, type, src) {
+            if (type === 'image') {
+                document.getElementById('imageViewerTitle').innerText = name;
+                document.getElementById('imageViewerSrc').src = src || 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&auto=format&fit=crop&q=60';
+                document.getElementById('imageViewerDialog').classList.remove('hidden');
+            } else if (type === 'video') {
+                document.getElementById('videoFileName').innerText = name;
+                document.getElementById('videoPlayerDialog').classList.remove('hidden');
+                togglePlayVideo();
+            } else if (type === 'pdf') {
+                document.getElementById('pdfTitle').innerText = name;
+                document.getElementById('pdfViewerDialog').classList.remove('hidden');
+            } else if (type === 'audio') {
+                document.getElementById('audioTitle').innerText = name;
+                document.getElementById('audioPlayerDialog').classList.remove('hidden');
+            } else if (type === 'zip') {
+                document.getElementById('zipTitle').innerText = name;
+                renderZipVirtualTree();
+                document.getElementById('zipViewerDialog').classList.remove('hidden');
+            } else {
+                showToast(`Opened '${name}' via external fallback chooser`);
+            }
+        }
+
+        function closeViewer(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        // Video Player control helpers
+        let videoPlaying = false;
+        function togglePlayVideo() {
+            videoPlaying = !videoPlaying;
+            const playIcon = document.getElementById('videoPlayIcon');
+            if (videoPlaying) {
+                playIcon.className = 'fas fa-pause text-2xl';
+                showToast('Video Playback Started');
+            } else {
+                playIcon.className = 'fas fa-play text-2xl';
+                showToast('Video Paused');
+            }
+        }
+
+        function seekVideo(seconds) {
+            showToast(`Skipped ${seconds > 0 ? '+' : ''}${seconds}s`);
+        }
+
+        function toggleVideoFullscreen() {
+            showToast('Toggled full screen orientation');
+        }
+
+        // Audio Player controls
+        let audioPlaying = true;
+        function togglePlayAudio() {
+            audioPlaying = !audioPlaying;
+            const icon = document.getElementById('audioPlayIcon');
+            if (audioPlaying) {
+                icon.className = 'fas fa-pause text-xs';
+                showToast('Audio Playing');
+            } else {
+                icon.className = 'fas fa-play text-xs';
+                showToast('Audio Paused');
+            }
+        }
+
+        // Virtual Zip Traversal render
+        function renderZipVirtualTree() {
+            const list = document.getElementById('zipList');
+            list.innerHTML = '';
+            mockZipVirtualItems.forEach(item => {
+                const row = document.createElement('div');
+                row.className = "bg-white dark:bg-zinc-900 rounded-2xl p-3 border border-zinc-200/40 dark:border-zinc-800 flex justify-between items-center cursor-pointer";
+                row.onclick = () => showToast(`Previewing inner file: ${item.name}`);
+                row.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <i class="fas ${item.isDirectory ? 'fa-folder text-amber-500' : 'fa-file-alt text-zinc-500'}"></i>
+                        <span class="text-xs font-bold truncate dark:text-white">${item.name}</span>
+                    </div>
+                    <span class="text-[10px] text-zinc-400 font-semibold">${item.isDirectory ? 'Dir' : item.size}</span>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        // Private Vault PIN logic
+        let pinCode = '';
+        function openVaultPIN() {
+            pinCode = '';
+            resetPINDots();
+            document.getElementById('vaultPinOverlay').classList.remove('hidden');
+        }
+
+        function cancelVaultPIN() {
+            document.getElementById('vaultPinOverlay').classList.add('hidden');
+        }
+
+        function resetPINDots() {
+            for (let i = 1; i <= 4; i++) {
+                document.getElementById(`pinCircle${i}`).className = 'w-3.5 h-3.5 rounded-full border-2 border-zinc-500 smooth-transition';
+            }
+        }
+
+        function pressPin(num) {
+            if (pinCode.length < 4) {
+                pinCode += num;
+                document.getElementById(`pinCircle${pinCode.length}`).className = 'w-3.5 h-3.5 rounded-full bg-rose-500 border-2 border-rose-500 smooth-transition';
+                
+                if (pinCode.length === 4) {
+                    setTimeout(() => {
+                        if (pinCode === '1234') {
+                            document.getElementById('vaultPinOverlay').classList.add('hidden');
+                            openVaultScreen();
+                        } else {
+                            showToast('Incorrect PIN! Try default 1234');
+                            pinCode = '';
+                            resetPINDots();
+                        }
+                    }, 200);
+                }
+            }
+        }
+
+        function deletePin() {
+            if (pinCode.length > 0) {
+                document.getElementById(`pinCircle${pinCode.length}`).className = 'w-3.5 h-3.5 rounded-full border-2 border-zinc-500 smooth-transition';
+                pinCode = pinCode.slice(0, -1);
+            }
+        }
+
+        function openVaultScreen() {
+            // Hide dashboard
+            document.getElementById('viewDashboard').classList.add('hidden');
+            document.getElementById('viewVault').classList.remove('hidden');
+            renderVaultFiles();
+        }
+
+        function exitVault() {
+            document.getElementById('viewVault').classList.add('hidden');
+            document.getElementById('viewDashboard').classList.remove('hidden');
+            showToast('Private Vault Securely Locked');
+        }
+
+        function renderVaultFiles() {
+            const list = document.getElementById('vaultList');
+            list.innerHTML = '';
+            mockVaultFiles.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "bg-zinc-900 border border-zinc-800/80 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-zinc-800 smooth-transition";
+                card.onclick = () => openPremiumViewer(item.name, item.type, item.src);
+                card.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center text-lg">
+                            <i class="fas ${item.type === 'image' ? 'fa-image' : item.type === 'pdf' ? 'fa-file-pdf' : 'fa-file-alt'}"></i>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-sm text-white">${item.name}</h4>
+                            <p class="text-xs text-zinc-500 mt-0.5">${item.size} • Mem Decrypted</p>
+                        </div>
+                    </div>
+                    <i class="fas fa-lock text-rose-500 text-xs"></i>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        // Google Drive operations
+        function renderDrive() {
+            const signedOut = document.getElementById('driveSignedOut');
+            const signedIn = document.getElementById('driveSignedIn');
+            const filesList = document.getElementById('driveFilesList');
+            const cardStatus = document.getElementById('driveCardStatus');
+
+            if (isDriveConnected) {
+                signedOut.classList.add('hidden');
+                signedIn.classList.remove('hidden');
+                cardStatus.innerText = "Linked: cloud.files@gmail.com";
+                cardStatus.className = "text-xs text-appGreen font-semibold mt-1";
+
+                filesList.innerHTML = '';
+                mockDriveFiles.forEach(file => {
+                    const row = document.createElement('div');
+                    row.className = "bg-white dark:bg-zinc-900 rounded-2xl p-4 border border-zinc-200/50 dark:border-zinc-800/50 flex justify-between items-center";
+                    
+                    let icon = "fa-file-pdf text-red-500 bg-red-500/10";
+                    if (file.type === 'video') icon = "fa-video text-purple-500 bg-purple-500/10";
+                    else if (file.type === 'csv') icon = "fa-file-csv text-teal-500 bg-teal-500/10";
+                    else if (file.type === 'image') icon = "fa-image text-rose-500 bg-rose-500/10";
+
+                    row.innerHTML = `
+                        <div class="flex items-center space-x-3.5 cursor-pointer" onclick="openPremiumViewer('${file.name}', '${file.type}', '${file.src || ''}')">
+                            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg ${icon.split(' ').slice(1).join(' ')}">
+                                <i class="fas ${icon.split(' ')[0]}"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm dark:text-white truncate">${file.name}</h4>
+                                <p class="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">${file.size}</p>
+                            </div>
+                        </div>
+                        <button onclick="showToast('Downloading ${file.name} to local device Downloads folder...')" class="w-9 h-9 rounded-full bg-appBlue/10 hover:bg-appBlue/20 text-appBlue flex items-center justify-center active:scale-90 smooth-transition"><i class="fas fa-download"></i></button>
+                    `;
+                    filesList.appendChild(row);
+                });
+            } else {
+                signedOut.classList.remove('hidden');
+                signedIn.classList.add('hidden');
+                cardStatus.innerText = "Disconnected";
+                cardStatus.className = "text-xs text-zinc-400 dark:text-zinc-500 mt-1";
+            }
+        }
+
+        function signInDrive() {
+            showToast('Signing in to Google Account...');
+            setTimeout(() => {
+                isDriveConnected = true;
+                showToast('Successfully synchronized Google Drive!');
+                renderDrive();
+            }, 1200);
+        }
+
+        function signOutDrive() {
+            isDriveConnected = false;
+            showToast('Google Drive disconnected');
+            renderDrive();
+        }
+
+        // Create Item operations
+        function showCreateDialog() {
+            document.getElementById('createInputName').value = '';
+            document.getElementById('createDialog').classList.remove('hidden');
+        }
+
+        function closeCreateDialog() {
+            document.getElementById('createDialog').classList.add('hidden');
+        }
+
+        function setCreateType(type) {
+            createType = type;
+            const folderBtn = document.getElementById('typeFolderBtn');
+            const fileBtn = document.getElementById('typeFileBtn');
+            if (type === 'folder') {
+                folderBtn.className = "py-2 px-4 rounded-xl font-bold text-xs bg-appBlue text-white border border-appBlue smooth-transition";
+                fileBtn.className = "py-2 px-4 rounded-xl font-bold text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-transparent smooth-transition";
+            } else {
+                fileBtn.className = "py-2 px-4 rounded-xl font-bold text-xs bg-appBlue text-white border border-appBlue smooth-transition";
+                folderBtn.className = "py-2 px-4 rounded-xl font-bold text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-transparent smooth-transition";
+            }
+        }
+
+        function confirmCreate() {
+            const name = document.getElementById('createInputName').value.trim();
+            if (!name) {
+                showToast('Please specify a valid name');
+                return;
+            }
+            if (!mockFolders[currentPath]) {
+                mockFolders[currentPath] = [];
+            }
+            if (createType === 'folder') {
+                mockFolders[currentPath].push({ name: name, isDirectory: true, itemsCount: 0 });
+                showToast(`Subdirectory '${name}' created successfully`);
+            } else {
+                let actualName = name;
+                if (!name.includes('.')) actualName += '.txt';
+                mockFolders[currentPath].push({ name: actualName, isDirectory: false, size: '0 B', type: 'txt' });
+                showToast(`File '${actualName}' created successfully`);
+            }
+            closeCreateDialog();
+            renderExplorer();
+        }
+
+        // Rename operations
+        function renameItem(oldName) {
+            const newName = prompt(`Rename '${oldName}' to:`, oldName);
+            if (newName && newName.trim() && newName.trim() !== oldName) {
+                const items = mockFolders[currentPath] || [];
+                const matched = items.find(i => i.name === oldName);
+                if (matched) {
+                    matched.name = newName.trim();
+                    showToast('Item renamed successfully');
+                    renderExplorer();
+                }
+            }
+        }
+
+        // Delete operations
+        function deleteItem(name) {
+            if (confirm(`Are you sure you want to delete '${name}'?`)) {
+                const items = mockFolders[currentPath] || [];
+                mockFolders[currentPath] = items.filter(i => i.name !== name);
+                showToast('Item deleted successfully');
+                renderExplorer();
+            }
+        }
+    </script>
+</body>
+</html>

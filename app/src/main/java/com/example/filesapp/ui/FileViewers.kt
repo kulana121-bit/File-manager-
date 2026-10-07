@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,7 +45,14 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.filesapp.data.AndroidFileModel
+import com.example.filesapp.data.ArchiveManager
+import com.example.filesapp.data.ArchiveEntryModel
 import com.example.filesapp.ui.theme.PrimaryAccentTaupe
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
+import android.util.LruCache
+import java.io.Closeable
 import java.io.File
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -55,6 +63,7 @@ import java.util.Date
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Global File Utility Helpers
@@ -104,7 +113,8 @@ fun editFile(context: android.content.Context, file: File, mimeType: String) {
 @Composable
 fun ImageViewerDialog(
     file: AndroidFileModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onOpenImageTools: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var scale by remember { mutableStateOf(1f) }
@@ -146,41 +156,69 @@ fun ImageViewerDialog(
                     }
             )
 
-            // One UI Style Top Header
-            Row(
+            // Modern floating pill top header
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.65f),
+                shadowElevation = 4.dp
             ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
-                }
-
-                Text(
-                    text = file.name,
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 12.dp)
-                )
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(38.dp).clip(CircleShape)
+                    ) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = { shareFile(context, File(file.path), file.mimeType) }) {
-                        Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
-                    }
-                    IconButton(onClick = { editFile(context, File(file.path), file.mimeType) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color.White)
-                    }
-                    IconButton(onClick = { showInfoDialog = true }) {
-                        Icon(Icons.Default.Info, contentDescription = "Information", tint = Color.White)
+                    Text(
+                        text = file.name,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        if (onOpenImageTools != null) {
+                            IconButton(
+                                onClick = onOpenImageTools,
+                                modifier = Modifier.size(38.dp).clip(CircleShape)
+                            ) {
+                                Icon(Icons.Outlined.PhotoFilter, contentDescription = "Image Tools", tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                        IconButton(
+                            onClick = { shareFile(context, File(file.path), file.mimeType) },
+                            modifier = Modifier.size(38.dp).clip(CircleShape)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                        IconButton(
+                            onClick = { editFile(context, File(file.path), file.mimeType) },
+                            modifier = Modifier.size(38.dp).clip(CircleShape)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                        IconButton(
+                            onClick = { showInfoDialog = true },
+                            modifier = Modifier.size(38.dp).clip(CircleShape)
+                        ) {
+                            Icon(Icons.Default.Info, contentDescription = "Information", tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -200,9 +238,17 @@ fun ImageViewerDialog(
 
         AlertDialog(
             onDismissRequest = { showInfoDialog = false },
-            title = { Text("Image Information", fontWeight = FontWeight.Bold) },
+            shape = RoundedCornerShape(28.dp),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFF007AFF).copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFF007AFF), modifier = Modifier.size(18.dp))
+                    }
+                    Text("Image Details", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Name: ${file.name}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Text("Resolution: ${imageDetails.first}", fontSize = 13.sp)
                     Text("File Size: ${imageDetails.second}", fontSize = 13.sp)
@@ -213,9 +259,10 @@ fun ImageViewerDialog(
             confirmButton = {
                 Button(
                     onClick = { showInfoDialog = false },
+                    shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF))
                 ) {
-                    Text("Close", color = Color.White)
+                    Text("Close", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -530,19 +577,28 @@ fun AudioPlayerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier.padding(16.dp),
+        shape = RoundedCornerShape(28.dp),
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Now Playing",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFF007AFF).copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color(0xFF007AFF), modifier = Modifier.size(20.dp))
+                    }
+                    Text(
+                        text = "Now Playing",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(36.dp).clip(CircleShape)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(20.dp))
                 }
             }
         },
@@ -555,18 +611,26 @@ fun AudioPlayerDialog(
             ) {
                 Surface(
                     modifier = Modifier
-                        .size(140.dp)
-                        .shadow(4.dp, RoundedCornerShape(24.dp)),
-                    shape = RoundedCornerShape(24.dp),
+                        .size(150.dp)
+                        .shadow(4.dp, CircleShape),
+                    shape = CircleShape,
                     color = Color(0xFF007AFF).copy(alpha = 0.1f)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = null,
-                            tint = Color(0xFF007AFF),
-                            modifier = Modifier.size(64.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF007AFF).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                tint = Color(0xFF007AFF),
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
                     }
                 }
 
@@ -574,7 +638,7 @@ fun AudioPlayerDialog(
 
                 Text(
                     text = file.name,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
@@ -617,9 +681,10 @@ fun AudioPlayerDialog(
                             val target = (currentPosition - 10000).coerceAtLeast(0)
                             mediaPlayer.seekTo(target)
                             currentPosition = target
-                        }
+                        },
+                        modifier = Modifier.size(44.dp).clip(CircleShape).background(Color(0xFF007AFF).copy(alpha = 0.1f))
                     ) {
-                        Icon(Icons.Default.FastRewind, contentDescription = "Rewind 10s", tint = Color(0xFF007AFF), modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.FastRewind, contentDescription = "Rewind 10s", tint = Color(0xFF007AFF), modifier = Modifier.size(24.dp))
                     }
 
                     IconButton(
@@ -633,14 +698,15 @@ fun AudioPlayerDialog(
                             }
                         },
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(60.dp)
+                            .shadow(3.dp, CircleShape)
                             .background(Color(0xFF007AFF), CircleShape)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = Color.White,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                     }
 
@@ -649,9 +715,10 @@ fun AudioPlayerDialog(
                             val target = (currentPosition + 10000).coerceAtMost(duration)
                             mediaPlayer.seekTo(target)
                             currentPosition = target
-                        }
+                        },
+                        modifier = Modifier.size(44.dp).clip(CircleShape).background(Color(0xFF007AFF).copy(alpha = 0.1f))
                     ) {
-                        Icon(Icons.Default.FastForward, contentDescription = "Forward 10s", tint = Color(0xFF007AFF), modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.FastForward, contentDescription = "Forward 10s", tint = Color(0xFF007AFF), modifier = Modifier.size(24.dp))
                     }
                 }
             }
@@ -661,45 +728,219 @@ fun AudioPlayerDialog(
 }
 
 /**
- * 4. PREMIUM PDF VIEWER with high-performance Dispatchers.IO page rendering.
+ * 4. GOOGLE DRIVE STYLE PDF READER
+ * - Continuous smooth vertical scrolling across all pages (handles 100+ pages effortlessly)
+ * - Fast asynchronous on-demand page rendering with thread-safe LruCache
+ * - Pinch-to-zoom & double tap zoom gestures
+ * - Floating live page indicator badge while scrolling ("X / Y")
+ * - Search-within-PDF (find text, match count, jump to match, match highlight)
+ * - Minimal clean top bar with document title, Search, and Share
  */
+class SafePdfRenderer(file: File) : Closeable {
+    private val pfd: ParcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    private val renderer: PdfRenderer = PdfRenderer(pfd)
+    val pageCount: Int = renderer.pageCount
+    private val renderLock = Any()
+    private val lruCache = LruCache<Int, Bitmap>(24)
+
+    fun getPageAspectRatio(pageIndex: Int): Float {
+        val safeIndex = pageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        synchronized(renderLock) {
+            return try {
+                renderer.openPage(safeIndex).use { page ->
+                    (page.height.toFloat() / page.width.toFloat()).coerceIn(0.5f, 3.0f)
+                }
+            } catch (e: Exception) {
+                1.414f // Standard A4 ratio
+            }
+        }
+    }
+
+    fun renderPage(pageIndex: Int, targetWidthPx: Int = 1080): Bitmap? {
+        val safeIndex = pageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        synchronized(renderLock) {
+            lruCache.get(safeIndex)?.let { return it }
+            return try {
+                renderer.openPage(safeIndex).use { page ->
+                    val aspect = (page.height.toFloat() / page.width.toFloat()).coerceIn(0.5f, 3.0f)
+                    val width = targetWidthPx.coerceIn(480, 1440)
+                    val height = (width * aspect).toInt().coerceAtLeast(100)
+                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bitmap)
+                    canvas.drawColor(android.graphics.Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    lruCache.put(safeIndex, bitmap)
+                    bitmap
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
+    }
+
+    override fun close() {
+        synchronized(renderLock) {
+            try { renderer.close() } catch (e: Exception) {}
+            try { pfd.close() } catch (e: Exception) {}
+            lruCache.evictAll()
+        }
+    }
+}
+
+@Composable
+fun PdfPageItem(
+    pageIndex: Int,
+    renderer: SafePdfRenderer,
+    isMatchedPage: Boolean,
+    pageWidthPx: Int = 1080
+) {
+    var bitmap by remember(pageIndex) { mutableStateOf<Bitmap?>(null) }
+    var isLoading by remember(pageIndex) { mutableStateOf(true) }
+    val aspectRatio = remember(pageIndex) { renderer.getPageAspectRatio(pageIndex) }
+
+    LaunchedEffect(pageIndex, pageWidthPx) {
+        isLoading = true
+        withContext(Dispatchers.IO) {
+            val bmp = renderer.renderPage(pageIndex, pageWidthPx)
+            bitmap = bmp
+            isLoading = false
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        border = if (isMatchedPage) BorderStroke(2.dp, Color(0xFFFF9500)) else null
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f / aspectRatio)
+                .background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = "PDF Page ${pageIndex + 1}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = Color(0xFF007AFF)
+                    )
+                    Text("Page ${pageIndex + 1}", fontSize = 11.sp, color = Color.Gray)
+                }
+            }
+
+            if (isMatchedPage) {
+                Surface(
+                    shape = RoundedCornerShape(bottomStart = 8.dp),
+                    color = Color(0xFFFF9500),
+                    modifier = Modifier.align(Alignment.TopEnd)
+                ) {
+                    Text(
+                        text = "Match",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun PdfViewerDialog(
     file: AndroidFileModel,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    var currentPageIndex by remember { mutableIntStateOf(0) }
-    var totalPages by remember { mutableIntStateOf(1) }
-    var currentBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var isRendering by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val fileObj = remember(file.path) { File(file.path) }
 
-    LaunchedEffect(currentPageIndex, file.path) {
-        isRendering = true
-        currentBitmap = null
-        withContext(Dispatchers.IO) {
-            try {
-                val fileObj = File(file.path)
-                if (fileObj.exists()) {
-                    ParcelFileDescriptor.open(fileObj, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                        PdfRenderer(pfd).use { pdfRenderer ->
-                            totalPages = pdfRenderer.pageCount.coerceAtLeast(1)
-                            val safePageIndex = currentPageIndex.coerceIn(0, totalPages - 1)
-                            pdfRenderer.openPage(safePageIndex).use { page ->
-                                // upscale to 2.0x for crisp reading experience on high density displays
-                                val scaleFactor = 2
-                                val bitmap = Bitmap.createBitmap(page.width * scaleFactor, page.height * scaleFactor, Bitmap.Config.ARGB_8888)
-                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                currentBitmap = bitmap
+    val safeRenderer = remember(file.path) {
+        try {
+            if (fileObj.exists()) SafePdfRenderer(fileObj) else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    DisposableEffect(safeRenderer) {
+        onDispose {
+            safeRenderer?.close()
+        }
+    }
+
+    val totalPages = safeRenderer?.pageCount ?: 1
+    val listState = rememberLazyListState()
+
+    // Floating live page indicator
+    val firstVisiblePage by remember {
+        derivedStateOf {
+            (listState.firstVisibleItemIndex + 1).coerceIn(1, totalPages)
+        }
+    }
+
+    // Pinch-to-zoom
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    // Search state
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var currentMatchIndex by remember { mutableIntStateOf(0) }
+    var isSearching by remember { mutableStateOf(false) }
+
+    // Perform text search via PDFBox in background
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.trim().length >= 2) {
+            isSearching = true
+            withContext(Dispatchers.IO) {
+                try {
+                    PDFBoxResourceLoader.init(context)
+                    PDDocument.load(fileObj).use { doc ->
+                        val stripper = PDFTextStripper()
+                        val matches = mutableListOf<Int>()
+                        for (i in 1..doc.numberOfPages) {
+                            stripper.startPage = i
+                            stripper.endPage = i
+                            val pageText = stripper.getText(doc)
+                            if (pageText.contains(searchQuery.trim(), ignoreCase = true)) {
+                                matches.add(i - 1) // 0-based page index
                             }
                         }
+                        searchResults = matches
+                        currentMatchIndex = 0
                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    isSearching = false
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                isRendering = false
             }
+        } else {
+            searchResults = emptyList()
+            currentMatchIndex = 0
+            isSearching = false
         }
     }
 
@@ -710,121 +951,224 @@ fun PdfViewerDialog(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White)
+                .background(Color(0xFFE5E5EA))
         ) {
-            // One UI top bar
+            // Google Drive Style Minimal Top Bar
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFFF2F4F7),
+                color = Color.White,
                 shadowElevation = 2.dp
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color(0xFF1C1C1E))
-                    }
-
-                    Text(
-                        text = file.name,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1C1C1E),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                if (isSearchActive) {
+                    // Search Bar Header
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 12.dp)
-                    )
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                isSearchActive = false
+                                searchQuery = ""
+                                searchResults = emptyList()
+                            }
+                        ) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Close search", tint = Color(0xFF1C1C1E))
+                        }
 
-                    IconButton(onClick = { shareFile(context, File(file.path), file.mimeType) }) {
-                        Icon(Icons.Default.Share, contentDescription = "Share PDF", tint = Color(0xFF007AFF))
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Find in document...", fontSize = 14.sp) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(25.dp),
+                            trailingIcon = {
+                                if (isSearching) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color(0xFF007AFF)
+                                    )
+                                } else if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color.Gray, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                        )
+
+                        if (searchResults.isNotEmpty()) {
+                            Text(
+                                text = "${currentMatchIndex + 1}/${searchResults.size}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF007AFF),
+                                modifier = Modifier.padding(horizontal = 6.dp)
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    if (currentMatchIndex > 0) {
+                                        currentMatchIndex--
+                                    } else {
+                                        currentMatchIndex = searchResults.size - 1
+                                    }
+                                    val targetPage = searchResults[currentMatchIndex]
+                                    coroutineScope.launch {
+                                        listState.animateScrollToItem(targetPage)
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous match", tint = Color(0xFF007AFF))
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    if (currentMatchIndex < searchResults.size - 1) {
+                                        currentMatchIndex++
+                                    } else {
+                                        currentMatchIndex = 0
+                                    }
+                                    val targetPage = searchResults[currentMatchIndex]
+                                    coroutineScope.launch {
+                                        listState.animateScrollToItem(targetPage)
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next match", tint = Color(0xFF007AFF))
+                            }
+                        }
+                    }
+                } else {
+                    // Standard Top Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color(0xFF1C1C1E))
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            Text(
+                                text = file.name,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1C1C1E),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "$totalPages pages",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(onClick = { isSearchActive = true }) {
+                                Icon(Icons.Default.Search, contentDescription = "Find text", tint = Color(0xFF007AFF))
+                            }
+                            IconButton(onClick = { shareFile(context, fileObj, file.mimeType) }) {
+                                Icon(Icons.Default.Share, contentDescription = "Share PDF", tint = Color(0xFF007AFF))
+                            }
+                        }
                     }
                 }
             }
 
-            var scale by remember { mutableStateOf(1f) }
-            var offsetX by remember { mutableStateOf(0f) }
-            var offsetY by remember { mutableStateOf(0f) }
-
-            LaunchedEffect(currentPageIndex) {
-                scale = 1f
-                offsetX = 0f
-                offsetY = 0f
-            }
-
+            // Continuous Vertical Scrolling Reader with Pinch-to-Zoom
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(Color(0xFFE5E5EA))
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(0.8f, 5f)
-                            offsetX += pan.x
-                            offsetY += pan.y
-                        }
-                    },
-                contentAlignment = Alignment.Center
             ) {
-                if (isRendering || currentBitmap == null) {
-                    CircularProgressIndicator(color = Color(0xFF007AFF))
+                if (safeRenderer == null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Could not load PDF document", color = Color.Gray)
+                    }
                 } else {
-                    currentBitmap?.let { bmp ->
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = "PDF Page ${currentPageIndex + 1}",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer(
-                                    scaleX = scale,
-                                    scaleY = scale,
-                                    translationX = offsetX,
-                                    translationY = offsetY
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = zoomScale,
+                                scaleY = zoomScale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            )
+                            .pointerInput(Unit) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    zoomScale = (zoomScale * zoom).coerceIn(1f, 4f)
+                                    if (zoomScale > 1f) {
+                                        offsetX += pan.x
+                                        offsetY += pan.y
+                                    } else {
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    }
+                                }
+                            }
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onDoubleTap = {
+                                        if (zoomScale > 1f) {
+                                            zoomScale = 1f
+                                            offsetX = 0f
+                                            offsetY = 0f
+                                        } else {
+                                            zoomScale = 2f
+                                        }
+                                    }
                                 )
-                                .padding(12.dp),
-                            contentScale = ContentScale.Fit
+                            }
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(totalPages) { pageIndex ->
+                                val isMatched = searchResults.contains(pageIndex)
+                                PdfPageItem(
+                                    pageIndex = pageIndex,
+                                    renderer = safeRenderer,
+                                    isMatchedPage = isMatched
+                                )
+                            }
+                        }
+                    }
+
+                    // Floating Live Page Indicator Badge (Google Drive style)
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Black.copy(alpha = 0.72f),
+                        shadowElevation = 4.dp,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 20.dp)
+                    ) {
+                        Text(
+                            text = "$firstVisiblePage / $totalPages",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                         )
-                    }
-                }
-            }
-
-            // Page Indicator Navigation
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFFF2F4F7),
-                shadowElevation = 4.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { if (currentPageIndex > 0) currentPageIndex-- },
-                        enabled = currentPageIndex > 0
-                    ) {
-                        Icon(Icons.Default.ChevronLeft, contentDescription = "Previous Page", tint = if (currentPageIndex > 0) Color(0xFF007AFF) else Color.Gray)
-                    }
-
-                    Text(
-                        text = "Page ${currentPageIndex + 1} of $totalPages",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1C1C1E)
-                    )
-
-                    IconButton(
-                        onClick = { if (currentPageIndex < totalPages - 1) currentPageIndex++ },
-                        enabled = currentPageIndex < totalPages - 1
-                    ) {
-                        Icon(Icons.Default.ChevronRight, contentDescription = "Next Page", tint = if (currentPageIndex < totalPages - 1) Color(0xFF007AFF) else Color.Gray)
                     }
                 }
             }
@@ -1366,14 +1710,14 @@ fun EpubReaderDialog(
 }
 
 /**
- * 9. PREMIUM ARCHIVE TREE BROWSER (without extracting)
+ * 9. UNIVERSAL ARCHIVE TREE BROWSER (ZIP, 7Z, RAR, TAR, TGZ)
+ * Browses internal folder tree without extraction, previews files on tap, extracts single file or all.
  */
 data class ArchiveItem(
     val name: String,
     val path: String,
     val isDirectory: Boolean,
-    val size: Long,
-    val entry: java.util.zip.ZipEntry?
+    val size: Long
 )
 
 @Composable
@@ -1383,43 +1727,24 @@ fun ArchiveBrowserDialog(
     onExtractAll: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var currentPrefix by remember { mutableStateOf("") }
-    var entries by remember { mutableStateOf<List<java.util.zip.ZipEntry>>(emptyList()) }
+    var entries by remember { mutableStateOf<List<ArchiveEntryModel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     // Active inner preview file details
     var activePreviewFile by remember { mutableStateOf<AndroidFileModel?>(null) }
-
-    val zipFileRef = remember {
-        try {
-            ZipFile(File(file.path))
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
+    val archiveFile = remember(file.path) { File(file.path) }
 
     LaunchedEffect(file.path) {
         isLoading = true
         withContext(Dispatchers.IO) {
             try {
-                zipFileRef?.let { zip ->
-                    entries = zip.entries().asSequence().toList()
-                }
+                entries = ArchiveManager.listEntries(archiveFile)
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
                 isLoading = false
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            try {
-                zipFileRef?.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
@@ -1440,8 +1765,7 @@ fun ArchiveBrowserDialog(
                                 name = firstPart,
                                 path = currentPrefix + firstPart + "/",
                                 isDirectory = true,
-                                size = 0L,
-                                entry = null
+                                size = 0L
                             )
                         )
                     } else {
@@ -1450,8 +1774,7 @@ fun ArchiveBrowserDialog(
                                 name = firstPart,
                                 path = name,
                                 isDirectory = false,
-                                size = entry.size,
-                                entry = entry
+                                size = entry.size
                             )
                         )
                     }
@@ -1470,20 +1793,24 @@ fun ArchiveBrowserDialog(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // One UI styling header bar
+            // Modern minimalist header bar
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFFF2F4F7),
+                color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 2.dp
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
                         IconButton(
                             onClick = {
                                 if (currentPrefix.isNotEmpty()) {
@@ -1493,9 +1820,10 @@ fun ArchiveBrowserDialog(
                                 } else {
                                     onDismiss()
                                 }
-                            }
+                            },
+                            modifier = Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color(0xFF1C1C1E))
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
                         }
 
                         Column {
@@ -1503,7 +1831,7 @@ fun ArchiveBrowserDialog(
                                 text = file.name,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF1C1C1E),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1520,26 +1848,30 @@ fun ArchiveBrowserDialog(
                     Button(
                         onClick = onExtractAll,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF007AFF)),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = CircleShape,
+                        modifier = Modifier.height(38.dp)
                     ) {
-                        Text("Extract All", color = Color.White, fontSize = 12.sp)
+                        Text("Extract All", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF007AFF))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(color = Color(0xFF007AFF))
+                        Text("Reading archive index...", fontSize = 13.sp, color = Color.Gray)
+                    }
                 }
             } else {
-                Column(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                     if (currentItems.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("This directory folder is empty", color = Color.Gray)
                         }
                     } else {
                         LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(currentItems) { item ->
@@ -1550,20 +1882,19 @@ fun ArchiveBrowserDialog(
                                             if (item.isDirectory) {
                                                 currentPrefix = item.path
                                             } else {
-                                                zipFileRef?.let { zip ->
-                                                    item.entry?.let { zipEntry ->
-                                                        try {
-                                                            val previewDir = File(context.cacheDir, "zip_previews")
-                                                            if (!previewDir.exists()) previewDir.mkdirs()
-                                                            val tempFile = File(previewDir, zipEntry.name.substringAfterLast("/"))
-                                                            tempFile.deleteOnExit()
+                                                coroutineScope.launch {
+                                                    try {
+                                                        val previewDir = File(context.cacheDir, "archive_previews").apply {
+                                                            if (!exists()) mkdirs()
+                                                        }
+                                                        val tempFile = File(previewDir, item.name)
+                                                        tempFile.deleteOnExit()
 
-                                                            zip.getInputStream(zipEntry).use { input ->
-                                                                tempFile.outputStream().use { output ->
-                                                                    input.copyTo(output)
-                                                                }
-                                                            }
+                                                        val success = withContext(Dispatchers.IO) {
+                                                            ArchiveManager.extractSingleEntry(archiveFile, item.path, tempFile)
+                                                        }
 
+                                                        if (success && tempFile.exists()) {
                                                             activePreviewFile = AndroidFileModel(
                                                                 id = tempFile.absolutePath,
                                                                 name = tempFile.name,
@@ -1573,32 +1904,39 @@ fun ArchiveBrowserDialog(
                                                                 dateModified = tempFile.lastModified(),
                                                                 isDirectory = false
                                                             )
-                                                        } catch (e: Exception) {
-                                                            Toast.makeText(context, "Error reading file: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            Toast.makeText(context, "Could not preview '${item.name}'", Toast.LENGTH_SHORT).show()
                                                         }
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "Error reading file: ${e.message}", Toast.LENGTH_SHORT).show()
                                                     }
                                                 }
                                             }
                                         },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    shape = RoundedCornerShape(22.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                                             modifier = Modifier.weight(1f)
                                         ) {
-                                            Icon(
-                                                imageVector = if (item.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
-                                                contentDescription = null,
-                                                tint = Color(0xFF007AFF),
-                                                modifier = Modifier.size(24.dp)
-                                            )
+                                            Box(
+                                                modifier = Modifier.size(42.dp).clip(CircleShape).background(Color(0xFF007AFF).copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (item.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF007AFF),
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
                                                     text = item.name,
@@ -1616,21 +1954,23 @@ fun ArchiveBrowserDialog(
                                         if (!item.isDirectory) {
                                             IconButton(
                                                 onClick = {
-                                                    zipFileRef?.let { zip ->
-                                                        item.entry?.let { zipEntry ->
-                                                            try {
-                                                                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                                                                if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                                                                val dest = File(downloadsDir, item.name)
-                                                                zip.getInputStream(zipEntry).use { input ->
-                                                                    dest.outputStream().use { output ->
-                                                                        input.copyTo(output)
-                                                                    }
-                                                                }
-                                                                Toast.makeText(context, "Extracted '${item.name}' to Downloads", Toast.LENGTH_SHORT).show()
-                                                            } catch (e: Exception) {
-                                                                Toast.makeText(context, "Extraction failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                    coroutineScope.launch {
+                                                        try {
+                                                            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                                                            if (!downloadsDir.exists()) downloadsDir.mkdirs()
+                                                            val dest = File(downloadsDir, item.name)
+
+                                                            val success = withContext(Dispatchers.IO) {
+                                                                ArchiveManager.extractSingleEntry(archiveFile, item.path, dest)
                                                             }
+
+                                                            if (success) {
+                                                                Toast.makeText(context, "Extracted '${item.name}' to Downloads", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "Extraction failed for '${item.name}'", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, "Extraction error: ${e.message}", Toast.LENGTH_SHORT).show()
                                                         }
                                                     }
                                                 },
@@ -1710,6 +2050,9 @@ fun getMimeTypeForZipFile(file: File): String {
         "mp4" -> "video/mp4"
         "mkv" -> "video/x-matroska"
         "zip" -> "application/zip"
+        "rar" -> "application/vnd.rar"
+        "7z" -> "application/x-7z-compressed"
+        "tar", "tgz", "gz" -> "application/x-tar"
         "html", "htm" -> "text/html"
         else -> "text/plain"
     }

@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 
 data class FileManagerUiState(
@@ -38,7 +40,28 @@ data class FileManagerUiState(
     val categoryFiles: List<AndroidFileModel> = emptyList(),
     val pinnedFolders: Set<String> = emptySet(),
     val starredFiles: Set<String> = emptySet(),
-    val driveStatusMessage: String? = null
+    val driveStatusMessage: String? = null,
+    // Advanced Tools State
+    val duplicateScanProgress: DuplicateScanProgress? = null,
+    val duplicateGroups: List<DuplicateFileGroup> = emptyList(),
+    val totalDuplicateWastedBytes: Long = 0L,
+    val installedApps: List<InstalledAppDetails> = emptyList(),
+    val isLoadingApps: Boolean = false,
+    val isComputingChecksum: Boolean = false,
+    val checksumProgress: Float = 0f,
+    val currentChecksumResult: FileChecksumResult? = null,
+    // 3 More Advanced Tools State
+    val isWifiServerRunning: Boolean = false,
+    val wifiServerUrl: String = "",
+    val wifiServerLogs: List<String> = emptyList(),
+    val savedNetworkServers: List<NetworkServerConfig> = emptyList(),
+    val currentRemoteFiles: List<RemoteFileItem> = emptyList(),
+    val currentRemotePath: String = "/",
+    val activeRemoteServer: NetworkServerConfig? = null,
+    val isConnectingRemote: Boolean = false,
+    val remoteStatusMessage: String? = null,
+    val isProcessingImage: Boolean = false,
+    val imageProcessProgress: Float = 0f
 )
 
 class FileManagerViewModel(application: Application) : AndroidViewModel(application) {
@@ -47,6 +70,16 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private val repository = StorageRepository(application)
     private val vaultManager = PrivateVaultManager(application)
     val driveManager = GoogleDriveManager(application)
+    val wifiManager = WifiTransferManager(
+        context = application,
+        rootDirProvider = { Environment.getExternalStorageDirectory() },
+        onLogMessage = { log ->
+            val updated = (_uiState.value.wifiServerLogs + log).takeLast(20)
+            _uiState.value = _uiState.value.copy(wifiServerLogs = updated)
+        }
+    )
+    val imageToolsManager = ImageToolsManager(application)
+    val networkStorageManager = NetworkStorageManager(application)
 
     private var signedInAccount: GoogleSignInAccount? = null
     private var directoryObserver: FileObserver? = null
@@ -140,7 +173,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
         viewModelScope.launch {
             try {
-                vaultManager.encryptAndMoveToVault(file, pin)
+                withContext(Dispatchers.IO) {
+                    vaultManager.encryptAndMoveToVault(file, pin)
+                }
                 loadDirectory(File(_uiState.value.currentPath))
                 loadVaultFiles()
                 loadStorageBreakdown()
@@ -159,7 +194,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             try {
                 val currentDir = File(_uiState.value.currentPath.ifEmpty { Environment.getExternalStorageDirectory().absolutePath })
-                vaultManager.decryptAndRestoreFile(vaultFile, pin, currentDir)
+                withContext(Dispatchers.IO) {
+                    vaultManager.decryptAndRestoreFile(vaultFile, pin, currentDir)
+                }
                 loadDirectory(currentDir)
                 loadVaultFiles()
                 loadStorageBreakdown()
@@ -167,6 +204,33 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             } catch (e: Exception) {
                 onResult(false, "Decryption error: ${e.message}")
             }
+        }
+    }
+
+    fun decryptVaultFileForPreview(vaultFile: File, pin: String, onResult: (File?, String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val decryptedFile = withContext(Dispatchers.IO) {
+                    vaultManager.decryptToTempCacheFile(vaultFile, pin)
+                }
+                if (decryptedFile != null && decryptedFile.exists()) {
+                    onResult(decryptedFile, null)
+                } else {
+                    onResult(null, "Failed to decrypt: File missing or corrupted")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult(null, e.message ?: "Decryption error occurred")
+            }
+        }
+    }
+
+    suspend fun decryptVaultFileToCacheAsync(vaultFile: File, pin: String): File? = withContext(Dispatchers.IO) {
+        try {
+            vaultManager.decryptToTempCacheFile(vaultFile, pin)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 
@@ -426,6 +490,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        try {
+            wifiManager.stopServer()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun getMimeType(file: File): String {
@@ -595,7 +664,13 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun extractZipArchive(zipFile: File, targetDir: File) {
         viewModelScope.launch {
-            repository.extractZipArchive(zipFile, targetDir)
+            withContext(Dispatchers.IO) {
+                try {
+                    ArchiveManager.extractAll(zipFile, targetDir)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             loadDirectory(File(_uiState.value.currentPath))
             loadStorageBreakdown()
         }
@@ -638,6 +713,281 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             } else {
                 onResult(false, "Failed to create file. It might already exist.")
             }
+        }
+    }
+
+    // ==========================================
+    // 1. DUPLICATE FINDER ENGINE
+    // ==========================================
+
+    fun scanDuplicateFiles() {
+        viewModelScope.launch {
+            val root = Environment.getExternalStorageDirectory()
+            AdvancedToolsManager.scanDuplicatesFlow(root).collect { progress ->
+                _uiState.value = _uiState.value.copy(
+                    duplicateScanProgress = progress,
+                    duplicateGroups = progress.duplicateGroups,
+                    totalDuplicateWastedBytes = progress.totalWastedBytes
+                )
+            }
+        }
+    }
+
+    fun deleteSelectedDuplicates(filesToDelete: List<File>, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            var successCount = 0
+            withContext(Dispatchers.IO) {
+                for (file in filesToDelete) {
+                    try {
+                        if (file.exists() && file.delete()) {
+                            successCount++
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+
+            // Refresh duplicates list
+            val updatedGroups = _uiState.value.duplicateGroups.mapNotNull { group ->
+                val remaining = group.files.filter { it.exists() }
+                if (remaining.size > 1) {
+                    group.copy(files = remaining)
+                } else null
+            }
+            val totalWasted = updatedGroups.sumOf { it.wastedSizeBytes }
+
+            _uiState.value = _uiState.value.copy(
+                duplicateGroups = updatedGroups,
+                totalDuplicateWastedBytes = totalWasted
+            )
+
+            loadDirectory(File(_uiState.value.currentPath))
+            loadStorageBreakdown()
+            onResult(true, "Successfully deleted $successCount duplicate file(s)")
+        }
+    }
+
+    // ==========================================
+    // 2. FILE CHECKSUM CALCULATOR
+    // ==========================================
+
+    fun calculateFileChecksum(file: File) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isComputingChecksum = true,
+                checksumProgress = 0f,
+                currentChecksumResult = null
+            )
+            try {
+                val result = AdvancedToolsManager.calculateChecksums(file) { progress ->
+                    _uiState.value = _uiState.value.copy(checksumProgress = progress)
+                }
+                _uiState.value = _uiState.value.copy(
+                    isComputingChecksum = false,
+                    currentChecksumResult = result
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _uiState.value = _uiState.value.copy(
+                    isComputingChecksum = false,
+                    currentChecksumResult = null
+                )
+            }
+        }
+    }
+
+    fun clearChecksumResult() {
+        _uiState.value = _uiState.value.copy(
+            isComputingChecksum = false,
+            checksumProgress = 0f,
+            currentChecksumResult = null
+        )
+    }
+
+    // ==========================================
+    // 3. APP MANAGER
+    // ==========================================
+
+    fun loadInstalledApps() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingApps = true)
+            val apps = AdvancedToolsManager.getInstalledApps(getApplication())
+            _uiState.value = _uiState.value.copy(
+                installedApps = apps,
+                isLoadingApps = false
+            )
+        }
+    }
+
+    fun backupAppDetailsApk(app: InstalledAppDetails, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val appInfo = InstalledAppInfo(
+                name = app.name,
+                packageName = app.packageName,
+                versionName = app.versionName,
+                apkPath = app.apkPath,
+                sizeBytes = app.sizeBytes
+            )
+            val backedUp = repository.backupAppApk(appInfo)
+            if (backedUp != null) {
+                loadDirectory(File(_uiState.value.currentPath))
+                loadStorageBreakdown()
+                onResult(true, "Exported '${app.name}' APK to Downloads folder")
+            } else {
+                onResult(false, "Could not access source APK for '${app.name}'")
+            }
+        }
+    }
+
+    // ==========================================
+    // 4. WIFI FILE TRANSFER
+    // ==========================================
+
+    fun startWifiServer(port: Int = 8080) {
+        viewModelScope.launch {
+            val success = wifiManager.startServer(port)
+            if (success) {
+                _uiState.value = _uiState.value.copy(
+                    isWifiServerRunning = true,
+                    wifiServerUrl = wifiManager.getServerUrl()
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(isWifiServerRunning = false)
+            }
+        }
+    }
+
+    fun stopWifiServer() {
+        wifiManager.stopServer()
+        _uiState.value = _uiState.value.copy(
+            isWifiServerRunning = false,
+            wifiServerUrl = ""
+        )
+    }
+
+    // ==========================================
+    // 5. IMAGE TOOLS (Compress, Resize, Convert)
+    // ==========================================
+
+    fun processImage(
+        inputFile: File,
+        options: ImageProcessOptions,
+        onResult: (Boolean, ImageProcessResult?, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isProcessingImage = true)
+            val res = imageToolsManager.processImage(inputFile, options)
+            _uiState.value = _uiState.value.copy(isProcessingImage = false)
+            res.fold(
+                onSuccess = { result ->
+                    loadDirectory(File(_uiState.value.currentPath))
+                    loadStorageBreakdown()
+                    onResult(true, result, "Saved as ${result.outputFile.name}")
+                },
+                onFailure = { err ->
+                    onResult(false, null, err.message ?: "Failed to process image")
+                }
+            )
+        }
+    }
+
+    // ==========================================
+    // 6. FTP/SMB NETWORK STORAGE
+    // ==========================================
+
+    fun loadSavedNetworkServers() {
+        val servers = networkStorageManager.getSavedServers()
+        _uiState.value = _uiState.value.copy(savedNetworkServers = servers)
+    }
+
+    fun saveNetworkServer(config: NetworkServerConfig) {
+        networkStorageManager.saveServer(config)
+        loadSavedNetworkServers()
+    }
+
+    fun deleteNetworkServer(serverId: String) {
+        networkStorageManager.deleteServer(serverId)
+        loadSavedNetworkServers()
+        if (_uiState.value.activeRemoteServer?.id == serverId) {
+            disconnectRemoteServer()
+        }
+    }
+
+    fun connectToNetworkServer(server: NetworkServerConfig, path: String = "/") {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isConnectingRemote = true,
+                remoteStatusMessage = "Connecting to ${server.host}..."
+            )
+            val result = networkStorageManager.listRemoteFiles(server, path)
+            result.fold(
+                onSuccess = { files ->
+                    _uiState.value = _uiState.value.copy(
+                        activeRemoteServer = server,
+                        currentRemoteFiles = files,
+                        currentRemotePath = path,
+                        isConnectingRemote = false,
+                        remoteStatusMessage = null
+                    )
+                },
+                onFailure = { err ->
+                    _uiState.value = _uiState.value.copy(
+                        isConnectingRemote = false,
+                        remoteStatusMessage = "Error: ${err.message}"
+                    )
+                }
+            )
+        }
+    }
+
+    fun navigateRemoteFolder(path: String) {
+        val server = _uiState.value.activeRemoteServer ?: return
+        connectToNetworkServer(server, path)
+    }
+
+    fun disconnectRemoteServer() {
+        _uiState.value = _uiState.value.copy(
+            activeRemoteServer = null,
+            currentRemoteFiles = emptyList(),
+            currentRemotePath = "/",
+            isConnectingRemote = false,
+            remoteStatusMessage = null
+        )
+    }
+
+    fun downloadRemoteFile(remoteFile: RemoteFileItem, onResult: (Boolean, String) -> Unit) {
+        val server = _uiState.value.activeRemoteServer ?: return
+        viewModelScope.launch {
+            val destDir = File(_uiState.value.currentPath)
+            val result = networkStorageManager.downloadRemoteFile(server, remoteFile.path, destDir) { }
+            result.fold(
+                onSuccess = { localFile ->
+                    loadDirectory(File(_uiState.value.currentPath))
+                    loadStorageBreakdown()
+                    onResult(true, "Downloaded ${localFile.name}")
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Download failed")
+                }
+            )
+        }
+    }
+
+    fun uploadLocalFileToRemote(localFile: File, onResult: (Boolean, String) -> Unit) {
+        val server = _uiState.value.activeRemoteServer ?: return
+        viewModelScope.launch {
+            val remoteDir = _uiState.value.currentRemotePath
+            val result = networkStorageManager.uploadFile(server, localFile, remoteDir) { }
+            result.fold(
+                onSuccess = {
+                    connectToNetworkServer(server, remoteDir)
+                    onResult(true, "Uploaded ${localFile.name} to remote server")
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Upload failed")
+                }
+            )
         }
     }
 }

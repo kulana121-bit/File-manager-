@@ -101,4 +101,18 @@ dependencies {
 
     // Coil for Compose Image Loading
     implementation("io.coil-kt:coil-compose:2.5.0")
+
+    // Archive support (7Z, TAR, RAR, GZ)
+    implementation("org.apache.commons:commons-compress:1.26.0")
+    implementation("org.tukaani:xz:1.9")
+    implementation("com.github.junrar:junrar:7.5.5")
+
+    // PDF text search support
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
+    // FTP network client
+    implementation("commons-net:commons-net:3.10.0")
+
+    // QR Code generation
+    implementation("com.google.zxing:core:3.5.3")
 }
