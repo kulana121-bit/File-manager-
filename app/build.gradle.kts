@@ -27,18 +27,26 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
-        create("release") {
-            val keystorePath = System.getenv("KEYSTORE_FILE")
-            if (keystorePath != null && file(keystorePath).exists()) {
-                storeFile = file(keystorePath)
-                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "release123"
-                keyAlias = System.getenv("KEY_ALIAS") ?: "release-key"
-                keyPassword = System.getenv("KEY_PASSWORD") ?: "release123"
-            } else if (file("${rootDir}/debug.keystore").exists()) {
-                storeFile = file("${rootDir}/debug.keystore")
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+        val keystoreFileEnv = System.getenv("KEYSTORE_FILE")
+        val keystorePasswordEnv = System.getenv("KEYSTORE_PASSWORD")
+        val keyAliasEnv = System.getenv("KEY_ALIAS")
+        val keyPasswordEnv = System.getenv("KEY_PASSWORD")
+
+        val hasReleaseCredentials = !keystoreFileEnv.isNullOrBlank() &&
+                !keystorePasswordEnv.isNullOrBlank() &&
+                !keyAliasEnv.isNullOrBlank() &&
+                !keyPasswordEnv.isNullOrBlank()
+
+        if (hasReleaseCredentials) {
+            val keyFile = file(keystoreFileEnv)
+            if (!keyFile.exists()) {
+                throw org.gradle.api.GradleException("Release KEYSTORE_FILE specified at '$keystoreFileEnv' does not exist!")
+            }
+            create("release") {
+                storeFile = keyFile
+                storePassword = keystorePasswordEnv
+                keyAlias = keyAliasEnv
+                keyPassword = keyPasswordEnv
             }
         }
     }
@@ -50,7 +58,13 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning != null) {
+                signingConfig = releaseSigning
+            } else {
+                // If release signing credentials are missing, do not silently fall back to debug.
+                signingConfig = null
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -109,6 +123,7 @@ dependencies {
     // Coroutines & Lifecycle
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Google Play Services Auth & Drive API
     implementation("com.google.android.gms:play-services-auth:20.7.0")

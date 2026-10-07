@@ -6,3 +6,18 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Keystore & Signing files (Never commit sensitive credentials)
+*.keystore
+*.jks
+*.p12
+*.pfx
+debug.keystore
+release.keystore
+
+# Gradle & Android build outputs
+.gradle/
+.kotlin/
+.build-outputs/
+app/build/
+

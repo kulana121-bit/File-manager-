@@ -821,8 +821,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
                                 val categories = listOf(
                                     Triple("images", "Images", Icons.Outlined.Image),
-                                    Triple("docs", "Documents", Icons.Outlined.Description),
+                                    Triple("videos", "Videos", Icons.Outlined.VideoLibrary),
                                     Triple("audio", "Audio", Icons.Outlined.MusicNote),
+                                    Triple("docs", "Documents", Icons.Outlined.Description),
+                                    Triple("downloads", "Downloads", Icons.Outlined.Download),
                                     Triple("apks", "APKs", Icons.Outlined.PhoneAndroid),
                                     Triple("archives", "Archives", Icons.Outlined.FolderZip)
                                 )
@@ -835,7 +837,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                     border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
                                 ) {
                                     Column(modifier = Modifier.padding(14.dp)) {
-                                        categories.chunked(3).forEach { rowList ->
+                                        categories.chunked(4).forEach { rowList ->
                                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                                                 rowList.forEach { (catKey, catTitle, icon) ->
                                                     Column(
@@ -851,13 +853,15 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                     ) {
                                                         Box(
                                                             modifier = Modifier
-                                                                .size(52.dp)
+                                                                .size(48.dp)
                                                                 .clip(CircleShape)
                                                                 .background(
                                                                     when (catKey) {
                                                                         "images" -> appBlue.copy(alpha = 0.12f)
-                                                                        "docs" -> appIndigo.copy(alpha = 0.12f)
+                                                                        "videos" -> Color(0xFF8B5CF6).copy(alpha = 0.12f)
                                                                         "audio" -> appGreen.copy(alpha = 0.12f)
+                                                                        "docs" -> appIndigo.copy(alpha = 0.12f)
+                                                                        "downloads" -> Color(0xFF06B6D4).copy(alpha = 0.12f)
                                                                         "apks" -> appAmber.copy(alpha = 0.12f)
                                                                         else -> appRed.copy(alpha = 0.12f)
                                                                     }
@@ -869,20 +873,22 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                                 contentDescription = catTitle,
                                                                 tint = when (catKey) {
                                                                     "images" -> appBlue
-                                                                    "docs" -> appIndigo
+                                                                    "videos" -> Color(0xFF8B5CF6)
                                                                     "audio" -> appGreen
+                                                                    "docs" -> appIndigo
+                                                                    "downloads" -> Color(0xFF06B6D4)
                                                                     "apks" -> appAmber
                                                                     else -> appRed
                                                                 },
-                                                                modifier = Modifier.size(24.dp)
+                                                                modifier = Modifier.size(22.dp)
                                                             )
                                                         }
-                                                        Spacer(modifier = Modifier.height(8.dp))
-                                                        Text(catTitle, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                        Spacer(modifier = Modifier.height(6.dp))
+                                                        Text(catTitle, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1)
                                                     }
                                                 }
-                                                if (rowList.size < 3) {
-                                                    Spacer(modifier = Modifier.weight(3f - rowList.size))
+                                                if (rowList.size < 4) {
+                                                    Spacer(modifier = Modifier.weight(4f - rowList.size))
                                                 }
                                             }
                                         }
@@ -974,6 +980,75 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
+                                        // Large Files Card
+                                        Card(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .bounceClick()
+                                                .clickable {
+                                                    viewModel.setCategoryFilter("large")
+                                                    activeBottomNav = "Files"
+                                                },
+                                            shape = RoundedCornerShape(26.dp),
+                                            colors = CardDefaults.cardColors(containerColor = cardColor),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                            border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(16.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(CircleShape)
+                                                        .background(appRed.copy(alpha = 0.12f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(Icons.Outlined.FolderSpecial, contentDescription = null, tint = appRed, modifier = Modifier.size(20.dp))
+                                                }
+                                                Text("Large Files", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                            }
+                                        }
+
+                                        // Recent Card
+                                        Card(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .bounceClick()
+                                                .clickable {
+                                                    viewModel.setCategoryFilter("recent")
+                                                    activeBottomNav = "Files"
+                                                },
+                                            shape = RoundedCornerShape(26.dp),
+                                            colors = CardDefaults.cardColors(containerColor = cardColor),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                            border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(16.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(CircleShape)
+                                                        .background(appBlue.copy(alpha = 0.12f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(Icons.Outlined.Schedule, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
+                                                }
+                                                Text("Recent", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                            }
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
                                         // App Manager Card
                                         Card(
                                             modifier = Modifier
@@ -1006,14 +1081,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                             }
                                         }
 
-                                        // Trash Card
+                                        // Vault Card
                                         Card(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .bounceClick()
                                                 .clickable {
-                                                    viewModel.loadTrashItems()
-                                                    showTrashDialog = true
+                                                    activeBottomNav = "Vault"
                                                 },
                                             shape = RoundedCornerShape(26.dp),
                                             colors = CardDefaults.cardColors(containerColor = cardColor),
@@ -1029,12 +1103,12 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                     modifier = Modifier
                                                         .size(40.dp)
                                                         .clip(CircleShape)
-                                                        .background(appRed.copy(alpha = 0.12f)),
+                                                        .background(appGreen.copy(alpha = 0.12f)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Icon(Icons.Outlined.Delete, contentDescription = null, tint = appRed, modifier = Modifier.size(20.dp))
+                                                    Icon(Icons.Outlined.Lock, contentDescription = null, tint = appGreen, modifier = Modifier.size(20.dp))
                                                 }
-                                                Text("Trash Bin", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text("Vault", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
                                             }
                                         }
                                     }

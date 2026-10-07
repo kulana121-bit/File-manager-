@@ -809,6 +809,22 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.value = _uiState.value.copy(activeCategory = category)
         if (category == null) {
             _uiState.value = _uiState.value.copy(categoryFiles = emptyList())
+        } else if (category == "downloads") {
+            viewModelScope.launch(Dispatchers.IO) {
+                val downloadsFolder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val files = downloadsFolder.listFiles()?.filter { it.isFile && !it.isHidden }?.map { f ->
+                    AndroidFileModel(
+                        id = f.absolutePath,
+                        name = f.name,
+                        path = f.absolutePath,
+                        size = f.length(),
+                        mimeType = getMimeType(f),
+                        dateModified = f.lastModified(),
+                        isDirectory = false
+                    )
+                } ?: emptyList()
+                _uiState.value = _uiState.value.copy(categoryFiles = files)
+            }
         } else {
             val filter = when (category) {
                 "images" -> SearchCategoryFilter.IMAGES
@@ -818,6 +834,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 "apks" -> SearchCategoryFilter.APKS
                 "archives" -> SearchCategoryFilter.ARCHIVES
                 "large" -> SearchCategoryFilter.LARGE_FILES
+                "recent" -> SearchCategoryFilter.RECENT
                 else -> SearchCategoryFilter.ALL
             }
             viewModelScope.launch {
@@ -1348,6 +1365,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun executeBackupJob(config: BackupJobConfig, onResult: (Boolean, String) -> Unit) {
+        if (config.scheduledIntervalHours > 0) {
+            BackupWorker.scheduleBackupJob(getApplication(), config)
+        }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 backupProgress = BackupExecutionProgress(isRunning = true, statusMessage = "Starting backup '${config.name}'...")
