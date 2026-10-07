@@ -57,7 +57,9 @@ android {
         }
         release {
             isMinifyEnabled = true
-            isShrinkResources = true
+            // Resource shrinking disabled: it was stripping resources and
+            // crashing the app on launch. Re-enable only after verifying.
+            isShrinkResources = false
             val releaseSigning = signingConfigs.findByName("release")
             if (releaseSigning != null) {
                 signingConfig = releaseSigning
@@ -66,7 +68,9 @@ android {
                 signingConfig = null
             }
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
+                // Use the non-optimize defaults: proguard-android-optimize.txt
+                // enables aggressive method inlining that broke launch.
+                getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro"
             )
         }
