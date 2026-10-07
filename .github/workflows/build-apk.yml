@@ -45,6 +45,8 @@ jobs:
           echo "SUCCESS: Active Java version ($MAJOR_VERSION) is 17 or newer."
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
       - name: Create temporary debug keystore
         run: |
           echo "=== Checking Temporary Debug Keystore ==="
