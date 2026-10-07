@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -58,13 +60,13 @@ fun DuplicateFinderDialog(
     val context = LocalContext.current
     val isDark = uiState.isDarkMode
 
-    val bgColor = if (isDark) Color(0xFF000000) else Color(0xFFF2F4F7)
-    val cardColor = if (isDark) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
-    val cardSubtle = if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F4F7)
-    val textPrimary = if (isDark) Color(0xFFFFFFFF) else Color(0xFF1C1C1E)
-    val textMuted = if (isDark) Color(0xFF8E8E93) else Color(0xFF6C6C70)
-    val appBlue = if (isDark) Color(0xFF0A84FF) else Color(0xFF007AFF)
-    val appRed = if (isDark) Color(0xFFFF453A) else Color(0xFFFF3B30)
+    val bgColor = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+    val cardColor = if (isDark) Color(0xFF24211D).copy(alpha = 0.90f) else Color(0xFFFFFFFF).copy(alpha = 0.92f)
+    val cardSubtle = if (isDark) Color(0xFF2E2A25).copy(alpha = 0.82f) else Color(0xFFEFE8DD).copy(alpha = 0.85f)
+    val textPrimary = if (isDark) Color(0xFFF5EFEB) else Color(0xFF2C2825)
+    val textMuted = if (isDark) Color(0xFFA89F96) else Color(0xFF8C827A)
+    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55)
+    val appRed = if (isDark) Color(0xFFD47366) else Color(0xFFB85347)
 
     val progress = uiState.duplicateScanProgress
     val groups = uiState.duplicateGroups
@@ -532,11 +534,11 @@ fun FileChecksumDialog(
     val context = LocalContext.current
     val isDark = uiState.isDarkMode
 
-    val cardColor = if (isDark) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
-    val cardSubtle = if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F4F7)
-    val textPrimary = if (isDark) Color(0xFFFFFFFF) else Color(0xFF1C1C1E)
-    val textMuted = if (isDark) Color(0xFF8E8E93) else Color(0xFF6C6C70)
-    val appBlue = if (isDark) Color(0xFF0A84FF) else Color(0xFF007AFF)
+    val cardColor = if (isDark) Color(0xFF24211D).copy(alpha = 0.90f) else Color(0xFFFFFFFF).copy(alpha = 0.92f)
+    val cardSubtle = if (isDark) Color(0xFF2E2A25).copy(alpha = 0.82f) else Color(0xFFEFE8DD).copy(alpha = 0.85f)
+    val textPrimary = if (isDark) Color(0xFFF5EFEB) else Color(0xFF2C2825)
+    val textMuted = if (isDark) Color(0xFFA89F96) else Color(0xFF8C827A)
+    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55)
 
     val isComputing = uiState.isComputingChecksum
     val progress = uiState.checksumProgress
@@ -689,17 +691,47 @@ fun AppManagerDialog(
     val context = LocalContext.current
     val isDark = uiState.isDarkMode
 
-    val bgColor = if (isDark) Color(0xFF000000) else Color(0xFFF2F4F7)
-    val cardColor = if (isDark) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
-    val cardSubtle = if (isDark) Color(0xFF2C2C2E) else Color(0xFFF2F4F7)
-    val textPrimary = if (isDark) Color(0xFFFFFFFF) else Color(0xFF1C1C1E)
-    val textMuted = if (isDark) Color(0xFF8E8E93) else Color(0xFF6C6C70)
-    val appBlue = if (isDark) Color(0xFF0A84FF) else Color(0xFF007AFF)
-    val appRed = if (isDark) Color(0xFFFF453A) else Color(0xFFFF3B30)
+    val bgColor = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+    val cardColor = if (isDark) Color(0xFF24211D).copy(alpha = 0.90f) else Color(0xFFFFFFFF).copy(alpha = 0.92f)
+    val cardSubtle = if (isDark) Color(0xFF2E2A25).copy(alpha = 0.82f) else Color(0xFFEFE8DD).copy(alpha = 0.85f)
+    val textPrimary = if (isDark) Color(0xFFF5EFEB) else Color(0xFF2C2825)
+    val textMuted = if (isDark) Color(0xFFA89F96) else Color(0xFF8C827A)
+    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55)
+    val appRed = if (isDark) Color(0xFFD47366) else Color(0xFFB85347)
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("All") } // "All", "User", "System"
     var selectedAppForDetails by remember { mutableStateOf<InstalledAppDetails?>(null) }
+
+    // Launcher for system app uninstallation
+    val uninstallLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // Gracefully refresh installed app list after system uninstall dialog completes
+        viewModel.loadInstalledApps()
+        selectedAppForDetails = null
+    }
+
+    val requestUninstallApp: (InstalledAppDetails) -> Unit = { targetApp ->
+        try {
+            val deleteIntent = Intent(Intent.ACTION_DELETE).apply {
+                data = Uri.parse("package:${targetApp.packageName}")
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            }
+            uninstallLauncher.launch(deleteIntent)
+        } catch (e: Exception) {
+            try {
+                // Fallback direct intent launch
+                val fallbackIntent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
+                    data = Uri.parse("package:${targetApp.packageName}")
+                    putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                }
+                context.startActivity(fallbackIntent)
+            } catch (ex: Exception) {
+                Toast.makeText(context, "Cannot launch uninstaller: ${ex.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (uiState.installedApps.isEmpty()) {
@@ -946,7 +978,7 @@ fun AppManagerDialog(
                                         }
                                     }
 
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                         IconButton(
                                             onClick = {
                                                 viewModel.backupAppDetailsApk(app) { success, msg ->
@@ -956,6 +988,15 @@ fun AppManagerDialog(
                                             modifier = Modifier.size(36.dp).clip(CircleShape).background(cardSubtle).bounceClick()
                                         ) {
                                             Icon(Icons.Default.SaveAlt, contentDescription = "Backup APK", tint = appBlue, modifier = Modifier.size(18.dp))
+                                        }
+
+                                        if (!app.isSystemApp) {
+                                            IconButton(
+                                                onClick = { requestUninstallApp(app) },
+                                                modifier = Modifier.size(36.dp).clip(CircleShape).background(appRed.copy(alpha = 0.1f)).bounceClick()
+                                            ) {
+                                                Icon(Icons.Outlined.Delete, contentDescription = "Uninstall", tint = appRed, modifier = Modifier.size(18.dp))
+                                            }
                                         }
 
                                         IconButton(
@@ -1065,23 +1106,14 @@ fun AppManagerDialog(
                     if (!app.isSystemApp) {
                         Button(
                             onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
-                                        data = Uri.parse("package:${app.packageName}")
-                                        putExtra(Intent.EXTRA_RETURN_RESULT, true)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    val intent = Intent(Intent.ACTION_DELETE).apply {
-                                        data = Uri.parse("package:${app.packageName}")
-                                    }
-                                    context.startActivity(intent)
-                                }
+                                requestUninstallApp(app)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = appRed.copy(alpha = 0.12f)),
                             shape = CircleShape,
                             modifier = Modifier.fillMaxWidth().bounceClick()
                         ) {
+                            Icon(Icons.Outlined.Delete, contentDescription = null, tint = appRed, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text("Uninstall App", color = appRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }

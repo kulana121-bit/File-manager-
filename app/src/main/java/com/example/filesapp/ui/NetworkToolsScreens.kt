@@ -50,14 +50,14 @@ fun WifiTransferDialog(
     val context = LocalContext.current
     val isDark = uiState.isDarkMode
 
-    val cardBg = if (isDark) Color(0xFF1E293B) else Color.White
-    val screenBg = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
-    val textPrimary = if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
-    val textMuted = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val appBlue = Color(0xFF3B82F6)
-    val appGreen = Color(0xFF10B981)
-    val appRed = Color(0xFFEF4444)
-    val borderCol = if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)
+    val cardBg = if (isDark) Color(0xFF24211D).copy(alpha = 0.90f) else Color.White.copy(alpha = 0.92f)
+    val screenBg = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+    val textPrimary = if (isDark) Color(0xFFF5EFEB) else Color(0xFF2C2825)
+    val textMuted = if (isDark) Color(0xFFA89F96) else Color(0xFF8C827A)
+    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55)
+    val appGreen = if (isDark) Color(0xFF86A873) else Color(0xFF5E8B49)
+    val appRed = if (isDark) Color(0xFFD47366) else Color(0xFFB85347)
+    val borderCol = if (isDark) Color(0xFF38332D) else Color(0xFFEADBCE)
 
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
@@ -330,11 +330,11 @@ fun ImageToolsDialog(
     val context = LocalContext.current
     val isDark = uiState.isDarkMode
 
-    val cardBg = if (isDark) Color(0xFF1E293B) else Color.White
-    val textPrimary = if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
-    val textMuted = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val appBlue = Color(0xFF3B82F6)
-    val borderCol = if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)
+    val cardBg = if (isDark) Color(0xFF24211D).copy(alpha = 0.90f) else Color.White.copy(alpha = 0.92f)
+    val textPrimary = if (isDark) Color(0xFFF5EFEB) else Color(0xFF2C2825)
+    val textMuted = if (isDark) Color(0xFFA89F96) else Color(0xFF8C827A)
+    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55)
+    val borderCol = if (isDark) Color(0xFF38332D) else Color(0xFFEADBCE)
 
     var selectedFormat by remember {
         mutableStateOf(
@@ -576,12 +576,12 @@ fun NetworkStorageDialog(
     val context = LocalContext.current
     val isDark = uiState.isDarkMode
 
-    val cardBg = if (isDark) Color(0xFF1E293B) else Color.White
-    val screenBg = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
-    val textPrimary = if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
-    val textMuted = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-    val appBlue = Color(0xFF3B82F6)
-    val borderCol = if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)
+    val cardBg = if (isDark) Color(0xFF24211D).copy(alpha = 0.90f) else Color.White.copy(alpha = 0.92f)
+    val screenBg = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+    val textPrimary = if (isDark) Color(0xFFF5EFEB) else Color(0xFF2C2825)
+    val textMuted = if (isDark) Color(0xFFA89F96) else Color(0xFF8C827A)
+    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55)
+    val borderCol = if (isDark) Color(0xFF38332D) else Color(0xFFEADBCE)
 
     var showAddServerDialog by remember { mutableStateOf(false) }
 

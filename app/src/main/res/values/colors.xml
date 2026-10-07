@@ -2,4 +2,5 @@
 <resources>
     <color name="primary_accent">#8C533E</color>
     <color name="background_cream">#F7F3ED</color>
+    <color name="ic_launcher_background">#F7F3ED</color>
 </resources>

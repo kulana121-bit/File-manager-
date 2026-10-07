@@ -298,22 +298,25 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         }
     }
 
-    // Dynamic Style Colors (Aesthetic, minimalist palette with perfect contrast in both themes)
+    // Dynamic Style Colors - Warm Cream & Liquid Glass Palette matching the app icon
     val isDark = uiState.isDarkMode
-    val appBlue = if (isDark) Color(0xFF0A84FF) else Color(0xFF007AFF) // Premium iOS Blue
-    val appGreen = if (isDark) Color(0xFF30D158) else Color(0xFF34C759)
-    val appRed = if (isDark) Color(0xFFFF453A) else Color(0xFFFF3B30)
-    val appAmber = if (isDark) Color(0xFFFF9F0A) else Color(0xFFFF9500)
-    val appIndigo = if (isDark) Color(0xFF5E5CE6) else Color(0xFF5856D6)
-    val appTeal = if (isDark) Color(0xFF64D2FF) else Color(0xFF00C7BE)
-    val appPurple = if (isDark) Color(0xFFBF5AF2) else Color(0xFFAF52DE)
+    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55) // Warm Taupe / Caramel Accent
+    val appGreen = if (isDark) Color(0xFF86A873) else Color(0xFF5E8B49) // Muted sage green
+    val appRed = if (isDark) Color(0xFFD47366) else Color(0xFFB85347) // Soft terracotta red
+    val appAmber = if (isDark) Color(0xFFDCA766) else Color(0xFFC68A40) // Warm honey amber
+    val appIndigo = if (isDark) Color(0xFFA693B8) else Color(0xFF7E6B94) // Muted lavender taupe
+    val appTeal = if (isDark) Color(0xFF7CAEA8) else Color(0xFF4C8780) // Muted eucalyptus
+    val appPurple = if (isDark) Color(0xFFB58BA5) else Color(0xFF8F637E)
 
-    val bgColor = if (isDark) Color(0xFF0B0D11) else Color(0xFFF7F8FA) // Clean, airy neutral canvas
-    val cardColor = if (isDark) Color(0xFF161922) else Color(0xFFFFFFFF) // Modern elevated card
-    val cardSubtle = if (isDark) Color(0xFF1E222F) else Color(0xFFF1F3F7) // Soft background for chips & search
-    val textPrimary = if (isDark) Color(0xFFF5F6FA) else Color(0xFF14171F)
-    val textMuted = if (isDark) Color(0xFF8C93A4) else Color(0xFF757D90)
-    val separatorColor = if (isDark) Color(0xFF242A38).copy(alpha = 0.8f) else Color(0xFFE8EBF0).copy(alpha = 0.7f)
+    // Warm cream background (#F7F3ED) matching the app icon; warm espresso charcoal in dark mode
+    val bgColor = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+    // Glass card surface: translucent layered with glass border
+    val cardColor = if (isDark) Color(0xFF24211D).copy(alpha = 0.88f) else Color(0xFFFFFFFF).copy(alpha = 0.90f)
+    val cardSubtle = if (isDark) Color(0xFF2E2A25).copy(alpha = 0.82f) else Color(0xFFEFE8DD).copy(alpha = 0.85f)
+    val textPrimary = if (isDark) Color(0xFFF5EFEB) else Color(0xFF2C2825)
+    val textMuted = if (isDark) Color(0xFFA89F96) else Color(0xFF8C827A)
+    // Delicate glass highlights: top light reflection with subtle borders
+    val separatorColor = if (isDark) Color(0xFF38332D).copy(alpha = 0.7f) else Color(0xFFEADBCE).copy(alpha = 0.8f)
 
     val rootPath = remember { Environment.getExternalStorageDirectory().absolutePath }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
@@ -560,20 +563,33 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             }
         },
         bottomBar = {
-            // Elegant, floating pill bottom nav bar with spring indicator
+            // iOS Liquid Glass Floating Pill Bottom Bar (Translucent glass with delicate highlight border)
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .padding(horizontal = 18.dp, vertical = 12.dp)
                     .shadow(
-                        elevation = if (isDark) 8.dp else 12.dp,
+                        elevation = if (isDark) 10.dp else 14.dp,
                         shape = RoundedCornerShape(32.dp),
-                        ambientColor = Color.Black.copy(alpha = if (isDark) 0.35f else 0.05f),
-                        spotColor = Color.Black.copy(alpha = if (isDark) 0.5f else 0.08f)
+                        ambientColor = if (isDark) Color.Black.copy(alpha = 0.5f) else Color(0xFF6B584D).copy(alpha = 0.10f),
+                        spotColor = if (isDark) Color.Black.copy(alpha = 0.65f) else Color(0xFF6B584D).copy(alpha = 0.14f)
                     ),
                 shape = RoundedCornerShape(32.dp),
-                color = cardColor,
-                border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
+                color = if (isDark) Color(0xFF24211D).copy(alpha = 0.82f) else Color(0xFFFFFFFF).copy(alpha = 0.85f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = if (isDark) listOf(
+                            Color.White.copy(alpha = 0.25f),
+                            Color(0xFF38332D).copy(alpha = 0.6f),
+                            Color.White.copy(alpha = 0.08f)
+                        ) else listOf(
+                            Color.White.copy(alpha = 0.90f),
+                            Color(0xFFEADBCE).copy(alpha = 0.6f),
+                            Color.White.copy(alpha = 0.45f)
+                        )
+                    )
+                )
             ) {
                 Row(
                     modifier = Modifier
@@ -1444,7 +1460,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 }
                             }
 
-                            // Subfolders Grid List (24dp round cards)
+                            // Subfolders Single Horizontal Scrollable Row (LazyRow)
                             if (selectedTab == "Folders" && uiState.activeCategory == null) {
                                 item {
                                     if (uiState.realFolders.isNotEmpty()) {
@@ -1455,22 +1471,22 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                             color = textMuted,
                                             letterSpacing = 1.2.sp
                                         )
-                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Spacer(modifier = Modifier.height(8.dp))
 
-                                        LazyVerticalGrid(
-                                            columns = GridCells.Fixed(3),
+                                        LazyRow(
                                             horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                                            modifier = Modifier.heightIn(max = 240.dp)
+                                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
                                             items(uiState.realFolders) { folder ->
                                                 Card(
                                                     modifier = Modifier
-                                                        .height(88.dp)
-                                                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                                                        .width(108.dp)
+                                                        .height(86.dp)
+                                                        .shadow(1.dp, RoundedCornerShape(22.dp))
                                                         .bounceClick()
                                                         .clickable { viewModel.setCurrentPath(folder.path) },
-                                                    shape = RoundedCornerShape(24.dp),
+                                                    shape = RoundedCornerShape(22.dp),
                                                     colors = CardDefaults.cardColors(containerColor = cardColor),
                                                     border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
                                                 ) {
@@ -1486,14 +1502,19 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                         ) {
                                                             Box(
                                                                 modifier = Modifier
-                                                                    .size(40.dp)
+                                                                    .size(38.dp)
                                                                     .clip(CircleShape)
                                                                     .background(appBlue.copy(alpha = 0.12f)),
                                                                 contentAlignment = Alignment.Center
                                                             ) {
-                                                                Icon(Icons.Default.Folder, contentDescription = folder.name, tint = appBlue, modifier = Modifier.size(22.dp))
+                                                                Icon(
+                                                                    Icons.Default.Folder,
+                                                                    contentDescription = folder.name,
+                                                                    tint = appBlue,
+                                                                    modifier = Modifier.size(20.dp)
+                                                                )
                                                             }
-                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Spacer(modifier = Modifier.height(5.dp))
                                                             Text(
                                                                 text = folder.name,
                                                                 fontSize = 11.sp,

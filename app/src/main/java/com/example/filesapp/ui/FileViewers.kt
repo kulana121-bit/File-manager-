@@ -47,7 +47,7 @@ import coil.request.ImageRequest
 import com.example.filesapp.data.AndroidFileModel
 import com.example.filesapp.data.ArchiveManager
 import com.example.filesapp.data.ArchiveEntryModel
-import com.example.filesapp.ui.theme.PrimaryAccentTaupe
+import com.example.filesapp.ui.theme.WarmTaupeAccent
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -156,15 +156,25 @@ fun ImageViewerDialog(
                     }
             )
 
-            // Modern floating pill top header
+            // iOS Liquid Glass Floating Top Header
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
                     .padding(horizontal = 16.dp, vertical = 20.dp),
                 shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.65f),
-                shadowElevation = 4.dp
+                color = Color(0xFF1E1B18).copy(alpha = 0.72f),
+                shadowElevation = 8.dp,
+                border = BorderStroke(
+                    width = 1.dp,
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.35f),
+                            Color(0xFF38332D).copy(alpha = 0.5f),
+                            Color.White.copy(alpha = 0.10f)
+                        )
+                    )
+                )
             ) {
                 Row(
                     modifier = Modifier
@@ -951,13 +961,22 @@ fun PdfViewerDialog(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFE5E5EA))
+                .background(Color(0xFFEBE5DC))
         ) {
-            // Google Drive Style Minimal Top Bar
+            // Google Drive Style Minimal Liquid Glass Top Bar
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color.White,
-                shadowElevation = 2.dp
+                color = Color(0xFFF7F3ED).copy(alpha = 0.88f),
+                shadowElevation = 4.dp,
+                border = BorderStroke(
+                    width = 1.dp,
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.90f),
+                            Color(0xFFEADBCE).copy(alpha = 0.6f)
+                        )
+                    )
+                )
             ) {
                 if (isSearchActive) {
                     // Search Bar Header
