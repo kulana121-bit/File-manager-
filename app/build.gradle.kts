@@ -68,9 +68,9 @@ android {
                 signingConfig = null
             }
             proguardFiles(
-                // Use the non-optimize defaults: proguard-android-optimize.txt
-                // enables aggressive method inlining that broke launch.
-                getDefaultProguardFile("proguard-android.txt"),
+                // AGP 9 requires proguard-android-optimize.txt; disable the
+                // aggressive optimizations via -dontoptimize in proguard-rules.pro
+                getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }

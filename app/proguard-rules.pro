@@ -4,6 +4,10 @@
 # immediate crash on launch ("Files keeps stopping"). Do NOT remove the
 # broad app keep rule below.
 
+# Disable R8's aggressive optimizations (method inlining etc.) which broke
+# the app on launch. Obfuscation/minification still applies for size.
+-dontoptimize
+
 # 1. SLF4J / Logging
 # org.slf4j.impl.StaticLoggerBinder is an optional logging binding that slf4j-api
 # references statically at compile time (via LoggerFactory.bind()).
