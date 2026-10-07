@@ -1,13 +1,18 @@
 package com.example.filesapp.ui
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Environment
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,18 +25,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,20 +50,19 @@ import coil.compose.AsyncImage
 import com.example.filesapp.data.AndroidFileModel
 import com.example.filesapp.data.InstalledAppInfo
 import com.example.filesapp.data.TrashItemModel
-import com.example.filesapp.ui.theme.*
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(viewModel: FileManagerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    var selectedTab by remember { mutableStateOf("Folders") }
-    var activeBottomNav by remember { mutableStateOf("Files") }
+    var selectedTab by remember { mutableStateOf("Folders") } // "Folders", "Recent" inside Files tab
+    var activeBottomNav by remember { mutableStateOf("Dashboard") } // "Dashboard", "Files", "Vault", "Drive", "More"
 
     // Dialog & In-App Viewer States
     var showPinSetupDialog by remember { mutableStateOf(false) }
@@ -64,7 +73,6 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
     var showTrashDialog by remember { mutableStateOf(false) }
     var showStorageAnalyzerDialog by remember { mutableStateOf(false) }
-    var showMoreMenuDialog by remember { mutableStateOf(false) }
     var showDriveBrowserDialog by remember { mutableStateOf(false) }
     var showOptionsMenuDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -85,12 +93,22 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var pinUnlockInput by remember { mutableStateOf("") }
     var pinActionInput by remember { mutableStateOf("") }
 
+    // Cached PIN for active vault session (cleared on close)
+    var cachedVaultPin by remember { mutableStateOf("") }
+    // Reference to a decrypted vault file in private cache, to delete on closing the viewer
+    var activeVaultPreviewFile by remember { mutableStateOf<File?>(null) }
+
     // Dedicated In-App Viewer Dialog States
     var showImageViewerDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showVideoPlayerDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showAudioPlayerDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showPdfViewerDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showHtmlViewerDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var showCsvViewerDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var showMarkdownViewerDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var showEpubReaderDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var showExtractZipDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var showOpenFallbackDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
 
     // Google Sign-In Activity Result Launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -101,16 +119,41 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             val account = task.getResult(ApiException::class.java)
             if (account != null) {
                 viewModel.onGoogleSignInSuccess(account)
-                Toast.makeText(context, "Signed in as ${account.email}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Signed in successfully as ${account.email}", Toast.LENGTH_LONG).show()
+            } else {
+                val errorMsg = "Sign-in failed: Account was null."
+                viewModel.setDriveStatusMessage(errorMsg)
+                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
             }
+        } catch (e: ApiException) {
+            val errorMsg = when (e.statusCode) {
+                10 -> "Sign-in failed (Code 10: Developer Error). Package Name '${context.packageName}' or SHA-1 missing/mismatched in Google Cloud Console."
+                12500 -> "Sign-in failed (Code 12500: Sign In Failed). Ensure OAuth 2.0 Client ID and SHA-1 fingerprint are registered in Google Cloud Console."
+                12501 -> "Sign-in cancelled by user."
+                12502 -> "Sign-in currently in progress."
+                7 -> "Network error during Google Sign-In. Check your internet connection."
+                else -> "Google Sign-In Error (Code ${e.statusCode}): ${e.message}"
+            }
+            viewModel.setDriveStatusMessage(errorMsg)
+            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
-            Toast.makeText(context, "Sign in error: ${e.message}", Toast.LENGTH_SHORT).show()
+            val errorMsg = "Sign-in error: ${e.localizedMessage ?: e.message}"
+            viewModel.setDriveStatusMessage(errorMsg)
+            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
         }
     }
 
     fun startGoogleSignIn() {
-        val signInClient = GoogleSignIn.getClient(context, viewModel.driveManager.getSignInOptions())
-        googleSignInLauncher.launch(signInClient.signInIntent)
+        try {
+            viewModel.driveManager.signOut {
+                val signInClient = GoogleSignIn.getClient(context, viewModel.driveManager.getSignInOptions())
+                googleSignInLauncher.launch(signInClient.signInIntent)
+            }
+        } catch (e: Exception) {
+            val errorMsg = "Could not launch Google Sign-In: ${e.message}"
+            viewModel.setDriveStatusMessage(errorMsg)
+            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+        }
     }
 
     // Real Intent Handlers
@@ -162,6 +205,116 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         }
     }
 
+    // Dynamic Style Colors (One UI / iOS style with perfect contrast)
+    val isDark = uiState.isDarkMode
+    val appBlue = if (isDark) Color(0xFF0A84FF) else Color(0xFF007AFF) // Premium iOS Blue
+    val appGreen = if (isDark) Color(0xFF30D158) else Color(0xFF34C759)
+    val appRed = if (isDark) Color(0xFFFF453A) else Color(0xFFFF3B30)
+    val appAmber = if (isDark) Color(0xFFFF9F0A) else Color(0xFFFF9500)
+    val appIndigo = if (isDark) Color(0xFF5E5CE6) else Color(0xFF5856D6)
+
+    val bgColor = if (isDark) Color(0xFF0F0F12) else Color(0xFFF2F4F7) // Soft clean premium backing
+    val cardColor = if (isDark) Color(0xFF1C1C1E) else Color(0xFFFFFFFF) // High elevation iOS cards
+    val textPrimary = if (isDark) Color(0xFFF2F2F7) else Color(0xFF1C1C1E)
+    val textMuted = if (isDark) Color(0xFF8E8E93) else Color(0xFF636366)
+    val separatorColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
+
+    val rootPath = remember { Environment.getExternalStorageDirectory().absolutePath }
+    var lastBackPressTime by remember { mutableLongStateOf(0L) }
+
+    val previewVaultFile: (AndroidFileModel) -> Unit = { vaultFile ->
+        if (cachedVaultPin.isNotBlank()) {
+            val decryptedFile = viewModel.decryptVaultFileToCache(File(vaultFile.path), cachedVaultPin)
+            if (decryptedFile != null && decryptedFile.exists()) {
+                activeVaultPreviewFile = decryptedFile
+                val tempModel = AndroidFileModel(
+                    id = decryptedFile.absolutePath,
+                    name = decryptedFile.name,
+                    path = decryptedFile.absolutePath,
+                    size = decryptedFile.length(),
+                    mimeType = vaultFile.mimeType,
+                    dateModified = decryptedFile.lastModified(),
+                    isDirectory = false
+                )
+                val ext = decryptedFile.extension.lowercase()
+                when (ext) {
+                    "png", "jpg", "jpeg", "webp", "gif" -> showImageViewerDialog = tempModel
+                    "mp4", "mkv" -> showVideoPlayerDialog = tempModel
+                    "mp3", "wav", "m4a" -> showAudioPlayerDialog = tempModel
+                    "pdf" -> showPdfViewerDialog = tempModel
+                    "html", "htm" -> showHtmlViewerDialog = tempModel
+                    "csv" -> showCsvViewerDialog = tempModel
+                    "md" -> showMarkdownViewerDialog = tempModel
+                    "epub" -> showEpubReaderDialog = tempModel
+                    "apk" -> showApkInstallerDialog = tempModel
+                    "txt", "json", "kt", "java", "xml", "js", "css" -> {
+                        textEditorContent = decryptedFile.readText()
+                        showTextEditorDialog = tempModel
+                    }
+                    "zip" -> {
+                        showExtractZipDialog = tempModel
+                    }
+                    else -> {
+                        showOpenFallbackDialog = tempModel
+                    }
+                }
+            } else {
+                Toast.makeText(context, "Failed to decrypt preview: Incorrect PIN or file error", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "Session expired, please re-unlock Private Vault", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onFileClick: (AndroidFileModel) -> Unit = { file ->
+        val ext = file.name.substringAfterLast('.', "").lowercase()
+        when (ext) {
+            "png", "jpg", "jpeg", "webp", "gif" -> showImageViewerDialog = file
+            "mp4", "mkv" -> showVideoPlayerDialog = file
+            "mp3", "wav", "m4a" -> showAudioPlayerDialog = file
+            "pdf" -> showPdfViewerDialog = file
+            "html", "htm" -> showHtmlViewerDialog = file
+            "csv" -> showCsvViewerDialog = file
+            "md" -> showMarkdownViewerDialog = file
+            "epub" -> showEpubReaderDialog = file
+            "zip" -> showExtractZipDialog = file
+            "apk" -> showApkInstallerDialog = file
+            "txt", "json", "kt", "java", "xml", "js", "css" -> {
+                val f = File(file.path)
+                textEditorContent = if (f.exists() && f.canRead()) f.readText() else "Empty file"
+                showTextEditorDialog = file
+            }
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx" -> {
+                launchOpenWithIntent(file)
+            }
+            else -> {
+                showOpenFallbackDialog = file
+            }
+        }
+    }
+
+    // Samsung Back Press Handling
+    BackHandler(enabled = true) {
+        if (activeBottomNav != "Files") {
+            activeBottomNav = "Files"
+            return@BackHandler
+        }
+        val currentPath = uiState.currentPath
+        val parentFile = File(currentPath).parentFile
+
+        if (currentPath != "/" && currentPath != rootPath && parentFile != null && parentFile.exists()) {
+            viewModel.setCurrentPath(parentFile.absolutePath)
+        } else {
+            val now = System.currentTimeMillis()
+            if (now - lastBackPressTime < 2000) {
+                (context as? Activity)?.finish()
+            } else {
+                lastBackPressTime = now
+                Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val filteredFiles = remember(uiState.realFiles, uiState.searchQuery, uiState.activeCategory, activeBottomNav, uiState.starredFiles) {
         uiState.realFiles.filter { file ->
             if (uiState.searchQuery.isNotEmpty() && !file.name.contains(uiState.searchQuery, ignoreCase = true)) return@filter false
@@ -172,26 +325,23 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                     "docs" -> file.mimeType.contains("pdf") || file.mimeType.startsWith("text/") || file.name.endsWith(".doc") || file.name.endsWith(".docx")
                     "audio" -> file.mimeType.startsWith("audio/")
                     "apks" -> file.name.endsWith(".apk") || file.mimeType.contains("android.package-archive")
+                    "archives" -> file.name.endsWith(".zip") || file.name.endsWith(".rar") || file.name.endsWith(".7z") || file.name.endsWith(".tar") || file.name.endsWith(".gz")
                     else -> true
                 }
             } else true
         }
     }
 
-    val currentBgColor = if (uiState.isDarkMode) Color(0xFF1C1A18) else SoftCreamBackground
-    val currentCardColor = if (uiState.isDarkMode) Color(0xFF24201D) else WhiteCardSurface
-    val currentTextColor = if (uiState.isDarkMode) Color(0xFFEAE3DC) else TextDarkHeadings
-
     fun formatFileSize(sizeBytes: Long): String {
         if (sizeBytes <= 0) return "0 B"
         val units = arrayOf("B", "KB", "MB", "GB", "TB")
         val digitGroups = (Math.log10(sizeBytes.toDouble()) / Math.log10(1024.0)).toInt()
-        return String.format("%.1f %s", sizeBytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+        return String.format(Locale.US, "%.1f %s", sizeBytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
     }
 
     fun formatDate(timestamp: Long): String {
         if (timestamp <= 0) return "Unknown"
-        val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+        val sdf = SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault())
         return sdf.format(Date(timestamp))
     }
 
@@ -203,589 +353,931 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     }
 
     Scaffold(
-        containerColor = currentBgColor,
+        containerColor = bgColor,
         bottomBar = {
+            // Elegant, elevated One UI / iOS hybrid bottom nav bar with large, comfortable touch targets (48dp+)
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .shadow(16.dp, RoundedCornerShape(24.dp)),
                 shape = RoundedCornerShape(24.dp),
-                color = if (uiState.isDarkMode) Color(0xFF282420) else Color(0xFFEBE2D7),
-                shadowElevation = 8.dp
+                color = cardColor,
+                tonalElevation = 8.dp
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf("Files", "Browse", "Starred", "Trash", "More").forEach { navItem ->
-                        val isSelected = activeBottomNav == navItem
-                        Surface(
-                            onClick = {
-                                activeBottomNav = navItem
-                                if (navItem == "Trash") {
-                                    viewModel.loadTrashItems()
-                                    showTrashDialog = true
-                                }
-                                if (navItem == "Files") {
-                                    viewModel.setCategoryFilter(null)
-                                }
-                                if (navItem == "More") {
-                                    showMoreMenuDialog = true
-                                }
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (isSelected) (if (uiState.isDarkMode) Color(0xFFEAE3DC) else TextDarkHeadings) else Color.Transparent
+                    val navItems = listOf(
+                        Triple("Dashboard", "Dashboard", Icons.Outlined.SpaceDashboard),
+                        Triple("Files", "My Files", Icons.Outlined.Folder),
+                        Triple("Vault", "Vault", Icons.Outlined.Lock),
+                        Triple("Drive", "Drive", Icons.Outlined.Cloud),
+                        Triple("More", "More", Icons.Outlined.Menu)
+                    )
+
+                    navItems.forEach { (navKey, label, icon) ->
+                        val isSelected = activeBottomNav == navKey
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clickable {
+                                    activeBottomNav = navKey
+                                    if (navKey == "Vault") {
+                                        if (!viewModel.isVaultPinSet()) {
+                                            showPinSetupDialog = true
+                                        } else {
+                                            showPinUnlockDialog = true
+                                        }
+                                    }
+                                    if (navKey == "Drive" && uiState.isDriveConnected) {
+                                        showDriveBrowserDialog = true
+                                    }
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = when (navItem) {
-                                        "Files" -> Icons.Default.Folder
-                                        "Browse" -> Icons.Default.GridView
-                                        "Starred" -> Icons.Default.Star
-                                        "Trash" -> Icons.Default.Delete
-                                        else -> Icons.Default.MoreHoriz
-                                    },
-                                    contentDescription = navItem,
-                                    tint = if (isSelected) (if (uiState.isDarkMode) TextDarkHeadings else Color.White) else TextMutedSubtitles,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = navItem,
-                                    color = if (isSelected) (if (uiState.isDarkMode) TextDarkHeadings else Color.White) else TextMutedSubtitles,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (isSelected) appBlue else textMuted,
+                                modifier = Modifier.size(if (isSelected) 24.dp else 22.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) appBlue else textMuted
+                            )
                         }
                     }
                 }
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 18.dp, vertical = 8.dp)
         ) {
-            // Header Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Files",
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = currentTextColor
-                    )
-                    Text(
-                        text = "Your files, organized",
-                        fontSize = 13.sp,
-                        color = TextMutedSubtitles,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Dark Mode Toggle
-                    IconButton(
-                        onClick = { viewModel.toggleDarkMode() },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(currentCardColor)
-                    ) {
-                        Icon(
-                            imageVector = if (uiState.isDarkMode) Icons.Default.WbSunny else Icons.Default.NightsStay,
-                            contentDescription = "Toggle Dark Mode",
-                            tint = if (uiState.isDarkMode) Color(0xFFFFC107) else TextDarkHeadings,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Profile Avatar
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFE8DDD0))
-                            .padding(2.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = "Profile",
-                            tint = TextMutedSubtitles
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Quick Pinned Folders Bar
-            if (uiState.pinnedFolders.isNotEmpty()) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = PrimaryAccentTaupe, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Pinned:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMutedSubtitles)
-                        }
-                    }
-                    items(uiState.pinnedFolders.toList()) { folderPath ->
-                        Surface(
-                            onClick = { viewModel.setCurrentPath(folderPath) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = currentCardColor,
-                            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(SoftBorderColor))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(Icons.Default.Folder, contentDescription = null, tint = PrimaryAccentTaupe, modifier = Modifier.size(14.dp))
-                                Text(folderPath.substringAfterLast("/").ifEmpty { folderPath }, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = currentTextColor)
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-
-            // Google Drive Card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        if (!uiState.isDriveConnected) {
-                            startGoogleSignIn()
-                        } else {
-                            showDriveBrowserDialog = true
-                        }
-                    },
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = currentCardColor),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(SoftBorderColor))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
+            Crossfade(
+                targetState = activeBottomNav,
+                animationSpec = tween(300),
+                modifier = Modifier.fillMaxSize()
+            ) { targetScreen ->
+                when (targetScreen) {
+                    "Dashboard" -> {
+                        // Samsung One UI Style Large Header & Dashboard
+                        LazyColumn(
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF0066DA)),
-                            contentAlignment = Alignment.Center
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Icon(Icons.Default.Cloud, contentDescription = "Drive", tint = Color.White, modifier = Modifier.size(20.dp))
-                        }
-
-                        Column {
-                            Text("Google Drive", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = currentTextColor)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if (uiState.isDriveConnected) Color(0xFF34A853) else Color.Gray))
-                                Text(if (uiState.isDriveConnected) "Connected (${uiState.driveUserEmail})" else "Tap to Sign In", fontSize = 11.sp, color = TextMutedSubtitles)
-                            }
-                        }
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconButton(
-                            onClick = { viewModel.toggleShowHiddenFiles() },
-                            modifier = Modifier.size(32.dp).clip(CircleShape).background(if (uiState.showHiddenFiles) PrimaryAccentTaupe else Color(0xFFF5EFE8))
-                        ) {
-                            Icon(
-                                imageVector = if (uiState.showHiddenFiles) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                contentDescription = "Hidden files",
-                                tint = if (uiState.showHiddenFiles) Color.White else TextMutedSubtitles,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Search Bar
-            OutlinedTextField(
-                value = uiState.searchQuery,
-                onValueChange = { viewModel.setSearchQuery(it) },
-                placeholder = { Text("Search real files...", fontSize = 12.sp, color = TextMutedSubtitles) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextMutedSubtitles) },
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = currentCardColor,
-                    unfocusedContainerColor = currentCardColor,
-                    focusedBorderColor = PrimaryAccentTaupe,
-                    unfocusedBorderColor = SoftBorderColor
-                )
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Browse Categories View
-            if (activeBottomNav == "Browse") {
-                Text("CATEGORIES", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMutedSubtitles, letterSpacing = 1.sp)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val categoriesList = listOf(
-                    Triple("images", "Images", Icons.Default.Image),
-                    Triple("docs", "Documents & PDFs", Icons.Default.Description),
-                    Triple("audio", "Audio Files", Icons.Default.MusicNote),
-                    Triple("apks", "Apps & APKs", Icons.Default.PhoneAndroid)
-                )
-
-                LazyVerticalGrid(columns = GridCells.Fixed(2), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(120.dp)) {
-                    items(categoriesList) { (catKey, catTitle, icon) ->
-                        Card(
-                            modifier = Modifier.clickable {
-                                viewModel.setCategoryFilter(catKey)
-                                activeBottomNav = "Files"
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = currentCardColor),
-                            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(SoftBorderColor))
-                        ) {
-                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(icon, contentDescription = null, tint = PrimaryAccentTaupe, modifier = Modifier.size(20.dp))
-                                Text(catTitle, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = currentTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            // Segmented Folders / Recent Control
-            if (activeBottomNav == "Files" && uiState.activeCategory == null) {
-                Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = Color(0xFFEBE3D9)) {
-                    Row(modifier = Modifier.padding(4.dp)) {
-                        listOf("Folders", "Recent").forEach { tab ->
-                            val isSelected = selectedTab == tab
-                            Surface(
-                                onClick = { selectedTab = tab },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isSelected) currentCardColor else Color.Transparent,
-                                shadowElevation = if (isSelected) 2.dp else 0.dp
-                            ) {
-                                Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text(text = tab, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (isSelected) currentTextColor else TextMutedSubtitles)
+                            item {
+                                // Huge One UI low-reach top banner
+                                Spacer(modifier = Modifier.height(48.dp))
+                                Column {
+                                    Text(
+                                        text = "My Device",
+                                        fontSize = 34.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = textPrimary,
+                                        letterSpacing = (-0.5).sp
+                                    )
+                                    Text(
+                                        text = "Everything in one clean place",
+                                        fontSize = 14.sp,
+                                        color = textMuted,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
+                                Spacer(modifier = Modifier.height(16.dp))
                             }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-            }
 
-            // Folders Grid Section
-            if (activeBottomNav == "Files" && selectedTab == "Folders" && uiState.activeCategory == null) {
-                Text("FOLDERS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMutedSubtitles, letterSpacing = 1.sp)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (uiState.realFolders.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(100.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(currentCardColor),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("No folders found", fontSize = 13.sp, color = TextMutedSubtitles)
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.height(180.dp)
-                    ) {
-                        items(uiState.realFolders) { folder ->
-                            Card(
-                                modifier = Modifier.height(80.dp).clickable { viewModel.setCurrentPath(folder.path) },
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = currentCardColor),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(SoftBorderColor))
-                            ) {
-                                Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    Icon(Icons.Default.Folder, contentDescription = folder.name, tint = PrimaryAccentTaupe, modifier = Modifier.size(26.dp))
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(folder.name, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = currentTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                        }
-
-                        item {
-                            Card(
-                                modifier = Modifier.height(80.dp).clickable {
-                                    if (!viewModel.isVaultPinSet()) {
-                                        showPinSetupDialog = true
-                                    } else {
-                                        showPinUnlockDialog = true
-                                    }
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFF2EAE0)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFFE0D2C3)))
-                            ) {
-                                Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    Icon(Icons.Default.Lock, contentDescription = "Private Vault", tint = Color(0xFF6A503C), modifier = Modifier.size(24.dp))
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text("Private Vault", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF5C422E))
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            // Real Files Header with Grid/List View Toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (uiState.searchQuery.isNotEmpty()) "SEARCH RESULTS" else if (uiState.activeCategory != null) "CATEGORY: ${uiState.activeCategory?.uppercase()}" else "FILES",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextMutedSubtitles,
-                    letterSpacing = 1.sp
-                )
-
-                // Grid / List View Toggle Button
-                IconButton(
-                    onClick = { viewModel.toggleGridView() },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = if (uiState.isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                        contentDescription = "Toggle View Mode",
-                        tint = PrimaryAccentTaupe,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (filteredFiles.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(currentCardColor),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = null, tint = TextMutedSubtitles, modifier = Modifier.size(48.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("No files yet", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = currentTextColor)
-                        Text("Scanned storage directory is empty", fontSize = 12.sp, color = TextMutedSubtitles)
-                    }
-                }
-            } else if (uiState.isGridView) {
-                // Grid View Mode
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(filteredFiles) { file ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(140.dp)
-                                .clickable {
-                                    val ext = file.name.substringAfterLast('.', "").lowercase()
-                                    when (ext) {
-                                        "png", "jpg", "jpeg", "webp", "gif" -> showImageViewerDialog = file
-                                        "mp4", "mkv" -> showVideoPlayerDialog = file
-                                        "mp3", "wav", "m4a" -> showAudioPlayerDialog = file
-                                        "pdf" -> showPdfViewerDialog = file
-                                        "html", "htm" -> showHtmlViewerDialog = file
-                                        "apk" -> showApkInstallerDialog = file
-                                        "txt", "json", "kt", "java", "xml", "js", "css", "md" -> {
-                                            val f = File(file.path)
-                                            textEditorContent = if (f.exists() && f.canRead()) f.readText() else "Empty file"
-                                            showTextEditorDialog = file
-                                        }
-                                        else -> showFileDetailsDialog = file
-                                    }
-                                },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = currentCardColor),
-                            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(SoftBorderColor))
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize().padding(8.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(70.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (file.name.endsWith(".pdf")) Color(0xFFF8ECEB) else if (file.name.endsWith(".apk")) Color(0xFFFFF3E0) else Color(0xFFF0EBF8)),
-                                    contentAlignment = Alignment.Center
+                            // 1. Beautiful circular/linear arc Storage Card
+                            item {
+                                val breakdown = uiState.storageBreakdown
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                 ) {
-                                    if (isMediaFile(file)) {
-                                        AsyncImage(
-                                            model = File(file.path),
-                                            contentDescription = file.name,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
-                                            error = rememberVectorPainter(Icons.Default.InsertDriveFile),
-                                            placeholder = rememberVectorPainter(Icons.Default.Image)
-                                        )
-                                    } else {
-                                        Text(
-                                            text = file.name.substringAfterLast('.', "FILE").uppercase().take(3),
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = if (file.name.endsWith(".pdf")) Color(0xFFE53935) else if (file.name.endsWith(".apk")) Color(0xFFE65100) else Color(0xFFA259FF)
-                                        )
+                                    Column(modifier = Modifier.padding(20.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Icon(Icons.Default.Storage, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
+                                                Text("Internal Storage", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                            }
+                                            if (breakdown != null) {
+                                                Text(
+                                                    text = "${((breakdown.usedSpaceBytes.toFloat() / breakdown.totalSpaceBytes) * 100).toInt()}% Used",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = appBlue
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        if (breakdown != null) {
+                                            val usedFraction = breakdown.usedSpaceBytes.toFloat() / breakdown.totalSpaceBytes
+                                            LinearProgressIndicator(
+                                                progress = { usedFraction },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(10.dp)
+                                                    .clip(CircleShape),
+                                                color = appBlue,
+                                                trackColor = separatorColor
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = "${formatFileSize(breakdown.usedSpaceBytes)} Used",
+                                                    fontSize = 12.sp,
+                                                    color = textMuted,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Text(
+                                                    text = "${formatFileSize(breakdown.freeSpaceBytes)} Free",
+                                                    fontSize = 12.sp,
+                                                    color = textMuted,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        } else {
+                                            CircularProgressIndicator(color = appBlue, modifier = Modifier.align(Alignment.CenterHorizontally))
+                                        }
                                     }
                                 }
+                            }
 
+                            // 2. High-contrast iOS-style Grid Categories Card
+                            item {
+                                Text(
+                                    text = "CATEGORIES",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textMuted,
+                                    letterSpacing = 1.2.sp
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                val categories = listOf(
+                                    Triple("images", "Images", Icons.Outlined.Image),
+                                    Triple("docs", "Documents", Icons.Outlined.Description),
+                                    Triple("audio", "Audio", Icons.Outlined.MusicNote),
+                                    Triple("apks", "APKs", Icons.Outlined.PhoneAndroid),
+                                    Triple("archives", "Archives", Icons.Outlined.FolderZip)
+                                )
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        categories.chunked(3).forEach { rowList ->
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                                rowList.forEach { (catKey, catTitle, icon) ->
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clickable {
+                                                                viewModel.setCategoryFilter(catKey)
+                                                                activeBottomNav = "Files"
+                                                            }
+                                                            .padding(vertical = 12.dp),
+                                                        horizontalAlignment = Alignment.CenterHorizontally
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(48.dp)
+                                                                .clip(RoundedCornerShape(14.dp))
+                                                                .background(
+                                                                    when (catKey) {
+                                                                        "images" -> appBlue.copy(alpha = 0.12f)
+                                                                        "docs" -> appIndigo.copy(alpha = 0.12f)
+                                                                        "audio" -> appGreen.copy(alpha = 0.12f)
+                                                                        "apks" -> appAmber.copy(alpha = 0.12f)
+                                                                        else -> appRed.copy(alpha = 0.12f)
+                                                                    }
+                                                                ),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = icon,
+                                                                contentDescription = catTitle,
+                                                                tint = when (catKey) {
+                                                                    "images" -> appBlue
+                                                                    "docs" -> appIndigo
+                                                                    "audio" -> appGreen
+                                                                    "apks" -> appAmber
+                                                                    else -> appRed
+                                                                },
+                                                                modifier = Modifier.size(24.dp)
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.height(6.dp))
+                                                        Text(catTitle, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                    }
+                                                }
+                                                // Pad row if not full
+                                                if (rowList.size < 3) {
+                                                    Spacer(modifier = Modifier.weight(3f - rowList.size))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 3. Quick Actions Panel
+                            item {
+                                Text(
+                                    text = "QUICK TOOLS",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textMuted,
+                                    letterSpacing = 1.2.sp
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // Analyzer Card
+                                    Card(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                viewModel.loadStorageBreakdown()
+                                                showStorageAnalyzerDialog = true
+                                            },
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(Icons.Outlined.PieChart, contentDescription = null, tint = appBlue)
+                                            Text("Analyzer", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                        }
+                                    }
+
+                                    // Trash Card
+                                    Card(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                viewModel.loadTrashItems()
+                                                showTrashDialog = true
+                                            },
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(Icons.Outlined.Delete, contentDescription = null, tint = appRed)
+                                            Text("Trash Bin", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 4. Recent Files List
+                            item {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(file.name, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = currentTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(formatFileSize(file.size), fontSize = 10.sp, color = TextMutedSubtitles)
+                                    Text(
+                                        text = "RECENT FILES",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = textMuted,
+                                        letterSpacing = 1.2.sp
+                                    )
+                                    TextButton(onClick = { activeBottomNav = "Files" }) {
+                                        Text("See All", fontSize = 12.sp, color = appBlue, fontWeight = FontWeight.Bold)
                                     }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
 
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(onClick = { viewModel.toggleStar(file.path) }, modifier = Modifier.size(24.dp)) {
-                                            Icon(
-                                                imageVector = if (uiState.starredFiles.contains(file.path)) Icons.Default.Star else Icons.Default.StarBorder,
-                                                contentDescription = "Star",
-                                                tint = Color(0xFFFFC107),
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                val recents = uiState.realFiles.take(4)
+                                if (recents.isEmpty()) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(24.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("No recent files found", fontSize = 13.sp, color = textMuted, fontWeight = FontWeight.Medium)
                                         }
+                                    }
+                                } else {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp)) {
+                                            recents.forEachIndexed { index, file ->
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable {
+                                                            val ext = file.name.substringAfterLast('.', "").lowercase()
+                                                            when (ext) {
+                                                                "png", "jpg", "jpeg", "webp", "gif" -> showImageViewerDialog = file
+                                                                "mp4", "mkv" -> showVideoPlayerDialog = file
+                                                                "mp3", "wav", "m4a" -> showAudioPlayerDialog = file
+                                                                "pdf" -> showPdfViewerDialog = file
+                                                                "html", "htm" -> showHtmlViewerDialog = file
+                                                                "apk" -> showApkInstallerDialog = file
+                                                                "txt", "json", "kt", "java", "xml", "js", "css", "md" -> {
+                                                                    val f = File(file.path)
+                                                                    textEditorContent = if (f.exists() && f.canRead()) f.readText() else "Empty file"
+                                                                    showTextEditorDialog = file
+                                                                }
+                                                                else -> showFileDetailsDialog = file
+                                                            }
+                                                        }
+                                                        .padding(10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    // Thumbnail Box with Coil or high-quality dynamic colors
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(40.dp)
+                                                            .clip(RoundedCornerShape(10.dp))
+                                                            .background(
+                                                                if (file.name.endsWith(".pdf")) Color(0xFFFDE8E8)
+                                                                else if (file.name.endsWith(".apk")) Color(0xFFFFF3E0)
+                                                                else Color(0xFFE8F0FE)
+                                                            ),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (isMediaFile(file)) {
+                                                            AsyncImage(
+                                                                model = File(file.path),
+                                                                contentDescription = file.name,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                                                                error = rememberVectorPainter(Icons.Default.InsertDriveFile),
+                                                                placeholder = rememberVectorPainter(Icons.Default.Image)
+                                                            )
+                                                        } else {
+                                                            Text(
+                                                                text = file.name.substringAfterLast('.', "FILE").uppercase().take(3),
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Black,
+                                                                color = if (file.name.endsWith(".pdf")) appRed else if (file.name.endsWith(".apk")) appAmber else appBlue
+                                                            )
+                                                        }
+                                                    }
 
-                                        IconButton(onClick = { showOptionsMenuDialog = file }, modifier = Modifier.size(24.dp)) {
-                                            Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = TextMutedSubtitles, modifier = Modifier.size(16.dp))
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = file.name,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = textPrimary,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Text(
+                                                            text = "${formatFileSize(file.size)} • ${formatDate(file.dateModified)}",
+                                                            fontSize = 11.sp,
+                                                            color = textMuted
+                                                        )
+                                                    }
+                                                }
+                                                if (index < recents.size - 1) {
+                                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 10.dp), color = separatorColor)
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
+
+                            item {
+                                Spacer(modifier = Modifier.height(20.dp))
+                            }
                         }
                     }
-                }
-            } else {
-                // List View Mode
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                    items(filteredFiles) { file ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                val ext = file.name.substringAfterLast('.', "").lowercase()
-                                when (ext) {
-                                    "png", "jpg", "jpeg", "webp", "gif" -> showImageViewerDialog = file
-                                    "mp4", "mkv" -> showVideoPlayerDialog = file
-                                    "mp3", "wav", "m4a" -> showAudioPlayerDialog = file
-                                    "pdf" -> showPdfViewerDialog = file
-                                    "html", "htm" -> showHtmlViewerDialog = file
-                                    "apk" -> showApkInstallerDialog = file
-                                    "txt", "json", "kt", "java", "xml", "js", "css", "md" -> {
-                                        val f = File(file.path)
-                                        textEditorContent = if (f.exists() && f.canRead()) f.readText() else "Empty file"
-                                        showTextEditorDialog = file
-                                    }
-                                    else -> showFileDetailsDialog = file
-                                }
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = currentCardColor),
-                            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(SoftBorderColor))
+
+                    "Files" -> {
+                        // Standard Directory File Browser in elegant One UI theme
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(if (file.name.endsWith(".pdf")) Color(0xFFF8ECEB) else if (file.name.endsWith(".apk")) Color(0xFFFFF3E0) else Color(0xFFF0EBF8)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isMediaFile(file)) {
-                                            AsyncImage(
-                                                model = File(file.path),
-                                                contentDescription = file.name,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
-                                                error = rememberVectorPainter(Icons.Default.InsertDriveFile),
-                                                placeholder = rememberVectorPainter(Icons.Default.Image)
-                                            )
-                                        } else {
-                                            Text(
-                                                text = file.name.substringAfterLast('.', "FILE").uppercase().take(3),
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Black,
-                                                color = if (file.name.endsWith(".pdf")) Color(0xFFE53935) else if (file.name.endsWith(".apk")) Color(0xFFE65100) else Color(0xFFA259FF)
-                                            )
-                                        }
-                                    }
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(file.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = currentTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("${formatDate(file.dateModified)} • ${formatFileSize(file.size)}", fontSize = 11.sp, color = TextMutedSubtitles)
-                                    }
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    IconButton(onClick = { viewModel.toggleStar(file.path) }, modifier = Modifier.size(28.dp)) {
-                                        Icon(
-                                            imageVector = if (uiState.starredFiles.contains(file.path)) Icons.Default.Star else Icons.Default.StarBorder,
-                                            contentDescription = "Star",
-                                            tint = Color(0xFFFFC107),
-                                            modifier = Modifier.size(18.dp)
+                            item {
+                                Spacer(modifier = Modifier.height(48.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "Explorer",
+                                            fontSize = 34.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = textPrimary,
+                                            letterSpacing = (-0.5).sp
+                                        )
+                                        Text(
+                                            text = "Manage your internal storage",
+                                            fontSize = 14.sp,
+                                            color = textMuted
                                         )
                                     }
 
-                                    IconButton(onClick = { showOptionsMenuDialog = file }, modifier = Modifier.size(28.dp)) {
-                                        Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = TextMutedSubtitles, modifier = Modifier.size(18.dp))
+                                    IconButton(
+                                        onClick = { viewModel.toggleGridView() },
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(cardColor)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (uiState.isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                                            contentDescription = "Toggle Grid/List",
+                                            tint = appBlue
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Directory Path Bar
+                            item {
+                                val isAtRoot = uiState.currentPath == "/" || uiState.currentPath == rootPath
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (!isAtRoot) {
+                                            IconButton(
+                                                onClick = {
+                                                    val parent = File(uiState.currentPath).parentFile
+                                                    if (parent != null && parent.exists()) {
+                                                        viewModel.setCurrentPath(parent.absolutePath)
+                                                    }
+                                                },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = appBlue)
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+
+                                        Icon(Icons.Default.Folder, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        val displayPath = if (isAtRoot) "Internal Storage" else "Storage / " + uiState.currentPath.removePrefix(rootPath).trimStart('/')
+                                        Text(
+                                            text = displayPath,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Folders Selection Header & Tab Panel
+                            item {
+                                if (uiState.activeCategory == null) {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
+                                    ) {
+                                        Row(modifier = Modifier.padding(4.dp)) {
+                                            listOf("Folders", "Recent").forEach { tab ->
+                                                val isSelected = selectedTab == tab
+                                                Surface(
+                                                    onClick = { selectedTab = tab },
+                                                    modifier = Modifier.weight(1f),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = if (isSelected) cardColor else Color.Transparent,
+                                                    shadowElevation = if (isSelected) 1.dp else 0.dp
+                                                ) {
+                                                    Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                                        Text(
+                                                            text = tab,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (isSelected) textPrimary else textMuted
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Subfolders Grid List
+                            if (selectedTab == "Folders" && uiState.activeCategory == null) {
+                                item {
+                                    if (uiState.realFolders.isNotEmpty()) {
+                                        Text(
+                                            text = "FOLDERS",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textMuted,
+                                            letterSpacing = 1.2.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Fixed(3),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                            modifier = Modifier.heightIn(max = 240.dp)
+                                        ) {
+                                            items(uiState.realFolders) { folder ->
+                                                Card(
+                                                    modifier = Modifier
+                                                        .height(84.dp)
+                                                        .clickable { viewModel.setCurrentPath(folder.path) },
+                                                    shape = RoundedCornerShape(18.dp),
+                                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.Center
+                                                    ) {
+                                                        Icon(Icons.Default.Folder, contentDescription = folder.name, tint = appBlue, modifier = Modifier.size(28.dp))
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            text = folder.name,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = textPrimary,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.padding(horizontal = 6.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Scanned Files List Section
+                            item {
+                                Text(
+                                    text = if (uiState.searchQuery.isNotEmpty()) "SEARCH RESULTS" else if (uiState.activeCategory != null) "CATEGORY: ${uiState.activeCategory?.uppercase()}" else "FILES",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textMuted,
+                                    letterSpacing = 1.2.sp
+                                )
+                            }
+
+                            if (filteredFiles.isEmpty()) {
+                                item {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(24.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(40.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Icon(Icons.Default.FolderOpen, contentDescription = null, tint = textMuted, modifier = Modifier.size(48.dp))
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Text("This directory is empty", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (uiState.isGridView) {
+                                item {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(2),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.heightIn(max = 800.dp)
+                                    ) {
+                                        items(filteredFiles) { file ->
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(144.dp)
+                                                    .clickable { onFileClick(file) },
+                                                shape = RoundedCornerShape(20.dp),
+                                                colors = CardDefaults.cardColors(containerColor = cardColor)
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(10.dp),
+                                                    verticalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(72.dp)
+                                                            .clip(RoundedCornerShape(12.dp))
+                                                            .background(
+                                                                if (file.name.endsWith(".pdf")) Color(0xFFFDE8E8)
+                                                                else if (file.name.endsWith(".apk")) Color(0xFFFFF3E0)
+                                                                else Color(0xFFE8F0FE)
+                                                            ),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (isMediaFile(file)) {
+                                                            AsyncImage(
+                                                                model = File(file.path),
+                                                                contentDescription = file.name,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
+                                                                error = rememberVectorPainter(Icons.Default.InsertDriveFile),
+                                                                placeholder = rememberVectorPainter(Icons.Default.Image)
+                                                            )
+                                                        } else {
+                                                            Text(
+                                                                text = file.name.substringAfterLast('.', "FILE").uppercase().take(3),
+                                                                fontSize = 14.sp,
+                                                                fontWeight = FontWeight.Black,
+                                                                color = if (file.name.endsWith(".pdf")) appRed else if (file.name.endsWith(".apk")) appAmber else appBlue
+                                                            )
+                                                        }
+                                                    }
+
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Text(
+                                                                text = file.name,
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = textPrimary,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                            Text(formatFileSize(file.size), fontSize = 10.sp, color = textMuted)
+                                                        }
+
+                                                        IconButton(
+                                                            onClick = { showOptionsMenuDialog = file },
+                                                            modifier = Modifier.size(24.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.MoreVert, contentDescription = null, tint = textMuted, modifier = Modifier.size(16.dp))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                items(filteredFiles) { file ->
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onFileClick(file) },
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(
+                                                        if (file.name.endsWith(".pdf")) Color(0xFFFDE8E8)
+                                                        else if (file.name.endsWith(".apk")) Color(0xFFFFF3E0)
+                                                        else Color(0xFFE8F0FE)
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (isMediaFile(file)) {
+                                                    AsyncImage(
+                                                        model = File(file.path),
+                                                        contentDescription = file.name,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                                                        error = rememberVectorPainter(Icons.Default.InsertDriveFile),
+                                                        placeholder = rememberVectorPainter(Icons.Default.Image)
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = file.name.substringAfterLast('.', "FILE").uppercase().take(3),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Black,
+                                                        color = if (file.name.endsWith(".pdf")) appRed else if (file.name.endsWith(".apk")) appAmber else appBlue
+                                                    )
+                                                }
+                                            }
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = file.name,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = textPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "${formatFileSize(file.size)} • ${formatDate(file.dateModified)}",
+                                                    fontSize = 11.sp,
+                                                    color = textMuted
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = { showOptionsMenuDialog = file },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.MoreVert, contentDescription = null, tint = textMuted)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            item {
+                                Spacer(modifier = Modifier.height(20.dp))
+                            }
+                        }
+                    }
+
+                    "Vault" -> {
+                        // Vault placeholder wrapper matching animation
+                        Box(modifier = Modifier.fillMaxSize())
+                    }
+
+                    "Drive" -> {
+                        // Google Drive state browser wrapper matching animation
+                        Box(modifier = Modifier.fillMaxSize())
+                    }
+
+                    "More" -> {
+                        // Samsung style premium system settings list
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp)
+                        ) {
+                            Spacer(modifier = Modifier.height(48.dp))
+                            Text(
+                                text = "Settings",
+                                fontSize = 34.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = textPrimary,
+                                letterSpacing = (-0.5).sp
+                            )
+                            Text(
+                                text = "Personalize files manager",
+                                fontSize = 14.sp,
+                                color = textMuted
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(24.dp),
+                                colors = CardDefaults.cardColors(containerColor = cardColor)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    // Dark Mode Row
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { viewModel.toggleDarkMode() }
+                                            .padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Icon(
+                                                imageVector = if (isDark) Icons.Outlined.WbSunny else Icons.Outlined.NightsStay,
+                                                contentDescription = null,
+                                                tint = appBlue
+                                            )
+                                            Column {
+                                                Text("Dark Mode", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text("Toggle complete dark theme", fontSize = 11.sp, color = textMuted)
+                                            }
+                                        }
+                                        Switch(
+                                            checked = isDark,
+                                            onCheckedChange = { viewModel.toggleDarkMode() },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = appBlue)
+                                        )
+                                    }
+
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = separatorColor)
+
+                                    // Storage Analyzer Row
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                viewModel.loadStorageBreakdown()
+                                                showStorageAnalyzerDialog = true
+                                            }
+                                            .padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Icon(Icons.Outlined.PieChart, contentDescription = null, tint = appIndigo)
+                                            Column {
+                                                Text("Storage Analyzer", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text("Deep scan space breakdown", fontSize = 11.sp, color = textMuted)
+                                            }
+                                        }
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textMuted)
+                                    }
+
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = separatorColor)
+
+                                    // Trash Bin Row
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                viewModel.loadTrashItems()
+                                                showTrashDialog = true
+                                            }
+                                            .padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Icon(Icons.Outlined.Delete, contentDescription = null, tint = appRed)
+                                            Column {
+                                                Text("Trash Bin Manager", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text("Restore soft-deleted files", fontSize = 11.sp, color = textMuted)
+                                            }
+                                        }
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textMuted)
                                     }
                                 }
                             }
@@ -796,75 +1288,137 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         }
     }
 
-    // Dedicated In-App Viewer Dialog Renders
+    val dismissAndWipe: () -> Unit = {
+        showImageViewerDialog = null
+        showVideoPlayerDialog = null
+        showAudioPlayerDialog = null
+        showPdfViewerDialog = null
+        showHtmlViewerDialog = null
+        showCsvViewerDialog = null
+        showMarkdownViewerDialog = null
+        showEpubReaderDialog = null
+        showExtractZipDialog = null
+        showTextEditorDialog = null
+        showOpenFallbackDialog = null
+        activeVaultPreviewFile?.let { temp ->
+            try {
+                if (temp.exists()) {
+                    temp.delete()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            activeVaultPreviewFile = null
+        }
+    }
+
+    // In-App Viewers Integration
     showImageViewerDialog?.let { file ->
-        ImageViewerDialog(file = file, onDismiss = { showImageViewerDialog = null })
+        ImageViewerDialog(file = file, onDismiss = dismissAndWipe)
     }
 
     showVideoPlayerDialog?.let { file ->
-        VideoPlayerDialog(file = file, onDismiss = { showVideoPlayerDialog = null })
+        VideoPlayerDialog(file = file, onDismiss = dismissAndWipe)
     }
 
     showAudioPlayerDialog?.let { file ->
-        AudioPlayerDialog(file = file, onDismiss = { showAudioPlayerDialog = null })
+        AudioPlayerDialog(file = file, onDismiss = dismissAndWipe)
     }
 
     showPdfViewerDialog?.let { file ->
-        PdfViewerDialog(file = file, onDismiss = { showPdfViewerDialog = null })
+        PdfViewerDialog(file = file, onDismiss = dismissAndWipe)
     }
 
     showHtmlViewerDialog?.let { file ->
-        HtmlViewerDialog(file = file, onDismiss = { showHtmlViewerDialog = null })
+        HtmlViewerDialog(file = file, onDismiss = dismissAndWipe)
     }
 
-    // Bottom Nav More Menu Dialog
-    if (showMoreMenuDialog) {
-        AlertDialog(
-            onDismissRequest = { showMoreMenuDialog = false },
-            title = { Text("App Tools & Settings", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = {
-                            showMoreMenuDialog = false
-                            viewModel.loadStorageBreakdown()
-                            showStorageAnalyzerDialog = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PieChart, contentDescription = null, tint = PrimaryAccentTaupe)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Storage Analyzer", color = currentTextColor, fontWeight = FontWeight.Bold)
-                        }
-                    }
+    showCsvViewerDialog?.let { file ->
+        CsvViewerDialog(file = file, onDismiss = dismissAndWipe)
+    }
 
-                    TextButton(
-                        onClick = {
-                            showMoreMenuDialog = false
-                            viewModel.toggleDarkMode()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (uiState.isDarkMode) Icons.Default.WbSunny else Icons.Default.NightsStay, contentDescription = null, tint = PrimaryAccentTaupe)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(if (uiState.isDarkMode) "Switch to Light Mode" else "Switch to Dark Mode", color = currentTextColor)
-                        }
-                    }
+    showMarkdownViewerDialog?.let { file ->
+        MarkdownViewerDialog(file = file, onDismiss = dismissAndWipe)
+    }
+
+    showEpubReaderDialog?.let { file ->
+        EpubReaderDialog(file = file, onDismiss = dismissAndWipe)
+    }
+
+    showExtractZipDialog?.let { file ->
+        AlertDialog(
+            onDismissRequest = dismissAndWipe,
+            title = { Text("Extract ZIP Archive", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = { Text("Do you want to extract the contents of '${file.name}' into the current folder?", fontSize = 13.sp, color = textPrimary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val targetDir = File(uiState.currentPath)
+                        viewModel.extractZipArchive(File(file.path), targetDir)
+                        Toast.makeText(context, "Extracting ${file.name} to current directory...", Toast.LENGTH_SHORT).show()
+                        dismissAndWipe()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
+                ) {
+                    Text("Extract All", color = Color.White)
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showMoreMenuDialog = false }) { Text("Close") }
+            dismissButton = {
+                TextButton(onClick = dismissAndWipe) { Text("Cancel", color = textMuted) }
             }
         )
     }
 
-    // 1. Rename Dialog
+    showOpenFallbackDialog?.let { file ->
+        AlertDialog(
+            onDismissRequest = dismissAndWipe,
+            title = { Text("Open Fallback Chooser", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Could not automatically recognize the format for '${file.name}'. How would you like to handle it?", fontSize = 12.sp, color = textPrimary)
+                    Text("Select one of the following actions:", fontSize = 11.sp, color = textMuted)
+                }
+            },
+            confirmButton = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            val f = File(file.path)
+                            textEditorContent = if (f.exists() && f.canRead()) f.readText() else "Empty file"
+                            showTextEditorDialog = file
+                            showOpenFallbackDialog = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Preview as Text / Edit", color = Color.White)
+                    }
+                    Button(
+                        onClick = {
+                            launchOpenWithIntent(file)
+                            dismissAndWipe()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = appIndigo),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open with System Chooser", color = Color.White)
+                    }
+                    TextButton(
+                        onClick = dismissAndWipe,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Cancel", color = textMuted)
+                    }
+                }
+            }
+        )
+    }
+
+    // 1. Rename Dialog (iOS Style)
     showRenameFileDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showRenameFileDialog = null },
-            title = { Text("Rename File", fontWeight = FontWeight.Bold) },
+            title = { Text("Rename File", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 OutlinedTextField(
                     value = renameInput,
@@ -884,13 +1438,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Rename")
+                    Text("Rename", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showRenameFileDialog = null }) { Text("Cancel") }
+                TextButton(onClick = { showRenameFileDialog = null }) { Text("Cancel", color = textMuted) }
             }
         )
     }
@@ -899,10 +1453,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showMoveFileDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showMoveFileDialog = null },
-            title = { Text("Move File", fontWeight = FontWeight.Bold) },
+            title = { Text("Move File", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter target folder path:", fontSize = 12.sp, color = TextMutedSubtitles)
+                    Text("Enter target folder path:", fontSize = 12.sp, color = textMuted)
                     OutlinedTextField(
                         value = targetFolderPathInput,
                         onValueChange = { targetFolderPathInput = it },
@@ -922,13 +1476,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Move")
+                    Text("Move", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showMoveFileDialog = null }) { Text("Cancel") }
+                TextButton(onClick = { showMoveFileDialog = null }) { Text("Cancel", color = textMuted) }
             }
         )
     }
@@ -937,10 +1491,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showCopyFileDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showCopyFileDialog = null },
-            title = { Text("Copy File", fontWeight = FontWeight.Bold) },
+            title = { Text("Copy File", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter target folder path to copy file:", fontSize = 12.sp, color = TextMutedSubtitles)
+                    Text("Enter target folder path to copy file:", fontSize = 12.sp, color = textMuted)
                     OutlinedTextField(
                         value = targetFolderPathInput,
                         onValueChange = { targetFolderPathInput = it },
@@ -960,13 +1514,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Copy")
+                    Text("Copy", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCopyFileDialog = null }) { Text("Cancel") }
+                TextButton(onClick = { showCopyFileDialog = null }) { Text("Cancel", color = textMuted) }
             }
         )
     }
@@ -975,7 +1529,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showOptionsMenuDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showOptionsMenuDialog = null },
-            title = { Text(file.name, fontWeight = FontWeight.Bold) },
+            title = { Text(file.name, fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(
@@ -986,9 +1540,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Info, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Icon(Icons.Outlined.Info, contentDescription = null, tint = appBlue)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("File Details & Properties", color = currentTextColor)
+                            Text("File Details & Properties", color = textPrimary)
                         }
                     }
 
@@ -1000,9 +1554,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.OpenInNew, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Icon(Icons.Outlined.OpenInNew, contentDescription = null, tint = appBlue)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Open With System App...", color = currentTextColor)
+                            Text("Open With System App...", color = textPrimary)
                         }
                     }
 
@@ -1014,9 +1568,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Share, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Icon(Icons.Outlined.Share, contentDescription = null, tint = appBlue)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Share File...", color = currentTextColor)
+                            Text("Share File...", color = textPrimary)
                         }
                     }
 
@@ -1029,9 +1583,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Edit, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Icon(Icons.Outlined.Edit, contentDescription = null, tint = appBlue)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Rename File", color = currentTextColor)
+                            Text("Rename File", color = textPrimary)
                         }
                     }
 
@@ -1044,9 +1598,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.FolderZip, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Icon(Icons.Outlined.FolderZip, contentDescription = null, tint = appBlue)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Move File", color = currentTextColor)
+                            Text("Move File", color = textPrimary)
                         }
                     }
 
@@ -1059,9 +1613,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = appBlue)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Copy File", color = currentTextColor)
+                            Text("Copy File", color = textPrimary)
                         }
                     }
 
@@ -1077,9 +1631,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF8C533E))
+                            Icon(Icons.Outlined.Lock, contentDescription = null, tint = appAmber)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Move to Private Vault (AES-256)", color = Color(0xFF8C533E), fontWeight = FontWeight.Bold)
+                            Text("Move to Private Vault (AES-256)", color = appAmber, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -1093,9 +1647,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color(0xFF0066DA))
+                            Icon(Icons.Outlined.CloudUpload, contentDescription = null, tint = appIndigo)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Upload to Google Drive", color = Color(0xFF0066DA), fontWeight = FontWeight.Bold)
+                            Text("Upload to Google Drive", color = appIndigo, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -1107,9 +1661,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFC107))
+                            Icon(if (uiState.starredFiles.contains(file.path)) Icons.Default.Star else Icons.Outlined.StarOutline, contentDescription = null, tint = appAmber)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(if (uiState.starredFiles.contains(file.path)) "Unstar File" else "Star File", color = currentTextColor)
+                            Text(if (uiState.starredFiles.contains(file.path)) "Unstar File" else "Star File", color = textPrimary)
                         }
                     }
 
@@ -1122,22 +1676,22 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red)
+                            Icon(Icons.Outlined.Delete, contentDescription = null, tint = appRed)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Delete (Move to Trash)", color = Color.Red, fontWeight = FontWeight.Bold)
+                            Text("Delete (Move to Trash)", color = appRed, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showOptionsMenuDialog = null }) {
-                    Text("Close")
+                    Text("Close", color = textMuted)
                 }
             }
         )
     }
 
-    // Trash Screen Dialog
+    // Trash Screen Dialog (iOS Styled Sheet)
     if (showTrashDialog) {
         AlertDialog(
             onDismissRequest = { showTrashDialog = false },
@@ -1148,8 +1702,8 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = Color.Red)
-                        Text("Trash Bin", fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = appRed)
+                        Text("Trash Bin", fontWeight = FontWeight.Bold, color = textPrimary)
                     }
 
                     if (uiState.trashItems.isNotEmpty()) {
@@ -1160,40 +1714,40 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 }
                             }
                         ) {
-                            Text("Empty Trash", color = Color.Red, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Empty Trash", color = appRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             },
             text = {
                 Column(modifier = Modifier.fillMaxWidth().height(340.dp)) {
-                    Text("Items in trash are auto-deleted after 30 days.", fontSize = 11.sp, color = TextMutedSubtitles)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Items in trash are auto-deleted after 30 days.", fontSize = 11.sp, color = textMuted)
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     if (uiState.trashItems.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = TextMutedSubtitles, modifier = Modifier.size(36.dp))
+                                Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = textMuted, modifier = Modifier.size(36.dp))
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text("Trash is empty", fontSize = 12.sp, color = TextMutedSubtitles)
+                                Text("Trash is empty", fontSize = 12.sp, color = textMuted)
                             }
                         }
                     } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(uiState.trashItems) { trashItem ->
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = currentCardColor)
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor)
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(10.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(trashItem.originalName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = currentTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text("${formatDate(trashItem.trashedAtTimestamp)} • ${formatFileSize(trashItem.size)}", fontSize = 10.sp, color = TextMutedSubtitles)
+                                            Text(trashItem.originalName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("${formatDate(trashItem.trashedAtTimestamp)} • ${formatFileSize(trashItem.size)}", fontSize = 10.sp, color = textMuted)
                                         }
 
                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1205,7 +1759,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                 },
                                                 modifier = Modifier.size(32.dp)
                                             ) {
-                                                Icon(Icons.Default.Restore, contentDescription = "Restore", tint = PrimaryAccentTaupe)
+                                                Icon(Icons.Default.Restore, contentDescription = "Restore", tint = appBlue)
                                             }
 
                                             IconButton(
@@ -1216,7 +1770,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                 },
                                                 modifier = Modifier.size(32.dp)
                                             ) {
-                                                Icon(Icons.Default.DeleteForever, contentDescription = "Delete Permanently", tint = Color.Red)
+                                                Icon(Icons.Default.DeleteForever, contentDescription = "Delete Permanently", tint = appRed)
                                             }
                                         }
                                     }
@@ -1227,8 +1781,8 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 }
             },
             confirmButton = {
-                Button(onClick = { showTrashDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)) {
-                    Text("Close")
+                Button(onClick = { showTrashDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = appBlue)) {
+                    Text("Close", color = Color.White)
                 }
             }
         )
@@ -1240,39 +1794,39 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             onDismissRequest = { showDriveBrowserDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Cloud, contentDescription = null, tint = Color(0xFF0066DA))
-                    Text("Google Drive Browser", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Cloud, contentDescription = null, tint = appBlue)
+                    Text("Google Drive Browser", fontWeight = FontWeight.Bold, color = textPrimary)
                 }
             },
             text = {
                 Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-                    Text("Account: ${uiState.driveUserEmail ?: "Connected"}", fontSize = 12.sp, color = TextMutedSubtitles)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Account: ${uiState.driveUserEmail ?: "Connected"}", fontSize = 12.sp, color = textMuted)
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     if (uiState.driveFiles.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.CloudOff, contentDescription = null, tint = TextMutedSubtitles, modifier = Modifier.size(36.dp))
+                                Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = textMuted, modifier = Modifier.size(36.dp))
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text("No Google Drive files found", fontSize = 12.sp, color = TextMutedSubtitles)
+                                Text("No Google Drive files found", fontSize = 12.sp, color = textMuted)
                             }
                         }
                     } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(uiState.driveFiles) { driveFile ->
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = currentCardColor)
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor)
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(10.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(driveFile.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = currentTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text(formatFileSize(driveFile.size), fontSize = 10.sp, color = TextMutedSubtitles)
+                                            Text(driveFile.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(formatFileSize(driveFile.size), fontSize = 10.sp, color = textMuted)
                                         }
 
                                         IconButton(
@@ -1281,9 +1835,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                     Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                                 }
                                             },
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(36.dp)
                                         ) {
-                                            Icon(Icons.Default.Download, contentDescription = "Download", tint = Color(0xFF0066DA))
+                                            Icon(Icons.Default.Download, contentDescription = "Download", tint = appBlue)
                                         }
                                     }
                                 }
@@ -1293,8 +1847,8 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 }
             },
             confirmButton = {
-                Button(onClick = { showDriveBrowserDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)) {
-                    Text("Close")
+                Button(onClick = { showDriveBrowserDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = appBlue)) {
+                    Text("Close", color = Color.White)
                 }
             }
         )
@@ -1303,10 +1857,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     if (showPinSetupDialog) {
         AlertDialog(
             onDismissRequest = { showPinSetupDialog = false },
-            title = { Text("Set Vault 4-Digit PIN", fontWeight = FontWeight.Bold) },
+            title = { Text("Set Vault 4-Digit PIN", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter a 4-digit PIN to secure your Private Vault. Only a SHA-256 hash is saved.", fontSize = 12.sp, color = TextMutedSubtitles)
+                    Text("Enter a 4-digit PIN to secure your Private Vault. Only a SHA-256 hash is saved.", fontSize = 12.sp, color = textMuted)
                     OutlinedTextField(
                         value = pinSetupInput,
                         onValueChange = { if (it.length <= 4) pinSetupInput = it },
@@ -1342,13 +1896,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             Toast.makeText(context, "PINs must match and be 4 digits", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Save PIN & Unlock")
+                    Text("Save PIN & Unlock", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPinSetupDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showPinSetupDialog = false }) { Text("Cancel", color = textMuted) }
             }
         )
     }
@@ -1356,10 +1910,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     if (showPinUnlockDialog) {
         AlertDialog(
             onDismissRequest = { showPinUnlockDialog = false },
-            title = { Text("Unlock Private Vault", fontWeight = FontWeight.Bold) },
+            title = { Text("Unlock Private Vault", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter your 4-digit PIN to access encrypted files.", fontSize = 12.sp, color = TextMutedSubtitles)
+                    Text("Enter your 4-digit PIN to access encrypted files.", fontSize = 12.sp, color = textMuted)
                     OutlinedTextField(
                         value = pinUnlockInput,
                         onValueChange = { if (it.length <= 4) pinUnlockInput = it },
@@ -1375,6 +1929,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 Button(
                     onClick = {
                         if (viewModel.verifyVaultPin(pinUnlockInput)) {
+                            cachedVaultPin = pinUnlockInput
                             showPinUnlockDialog = false
                             pinUnlockInput = ""
                             viewModel.loadVaultFiles()
@@ -1383,13 +1938,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             Toast.makeText(context, "Incorrect Vault PIN", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Unlock")
+                    Text("Unlock", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPinUnlockDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showPinUnlockDialog = false }) { Text("Cancel", color = textMuted) }
             }
         )
     }
@@ -1397,10 +1952,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showMoveToVaultDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showMoveToVaultDialog = null },
-            title = { Text("Move to Private Vault", fontWeight = FontWeight.Bold) },
+            title = { Text("Move to Private Vault", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Encrypt '${file.name}' with AES-256-GCM and hide it from all other apps.", fontSize = 12.sp, color = TextMutedSubtitles)
+                    Text("Encrypt '${file.name}' with AES-256-GCM and hide it from all other apps.", fontSize = 12.sp, color = textMuted)
                     OutlinedTextField(
                         value = pinActionInput,
                         onValueChange = { if (it.length <= 4) pinActionInput = it },
@@ -1423,13 +1978,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Encrypt & Move")
+                    Text("Encrypt & Move", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showMoveToVaultDialog = null }) { Text("Cancel") }
+                TextButton(onClick = { showMoveToVaultDialog = null }) { Text("Cancel", color = textMuted) }
             }
         )
     }
@@ -1439,32 +1994,32 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             onDismissRequest = { showVaultBrowserDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = PrimaryAccentTaupe)
-                    Text("Private Vault (Encrypted)", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = appBlue)
+                    Text("Private Vault (Encrypted)", fontWeight = FontWeight.Bold, color = textPrimary)
                 }
             },
             text = {
                 Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-                    Text("Files inside are AES-256-GCM encrypted. Tap any file to decrypt and restore to storage.", fontSize = 11.sp, color = TextMutedSubtitles)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Files inside are AES-256-GCM encrypted. Tap any file to decrypt and restore to storage.", fontSize = 11.sp, color = textMuted)
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     if (uiState.vaultFiles.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.LockOpen, contentDescription = null, tint = TextMutedSubtitles, modifier = Modifier.size(36.dp))
+                                Icon(Icons.Default.LockOpen, contentDescription = null, tint = textMuted, modifier = Modifier.size(36.dp))
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text("Private Vault is empty", fontSize = 12.sp, color = TextMutedSubtitles)
+                                Text("Private Vault is empty", fontSize = 12.sp, color = textMuted)
                             }
                         }
                     } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(uiState.vaultFiles) { vaultFile ->
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { showRestoreVaultFileDialog = vaultFile },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = currentCardColor)
+                                        .clickable { previewVaultFile(vaultFile) },
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(10.dp),
@@ -1472,15 +2027,15 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                                            Icon(Icons.Default.Key, contentDescription = null, tint = PrimaryAccentTaupe, modifier = Modifier.size(20.dp))
+                                            Icon(Icons.Default.Key, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text(vaultFile.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = currentTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                Text(formatFileSize(vaultFile.size), fontSize = 10.sp, color = TextMutedSubtitles)
+                                                Text(vaultFile.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(formatFileSize(vaultFile.size), fontSize = 10.sp, color = textMuted)
                                             }
                                         }
 
                                         TextButton(onClick = { showRestoreVaultFileDialog = vaultFile }) {
-                                            Text("Decrypt", fontSize = 11.sp, color = PrimaryAccentTaupe, fontWeight = FontWeight.Bold)
+                                            Text("Decrypt", fontSize = 11.sp, color = appBlue, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -1490,8 +2045,14 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 }
             },
             confirmButton = {
-                Button(onClick = { showVaultBrowserDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)) {
-                    Text("Close Vault")
+                Button(
+                    onClick = {
+                        showVaultBrowserDialog = false
+                        cachedVaultPin = ""
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
+                ) {
+                    Text("Close Vault", color = Color.White)
                 }
             }
         )
@@ -1500,10 +2061,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showRestoreVaultFileDialog?.let { vaultFile ->
         AlertDialog(
             onDismissRequest = { showRestoreVaultFileDialog = null },
-            title = { Text("Decrypt & Restore File", fontWeight = FontWeight.Bold) },
+            title = { Text("Decrypt & Restore File", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Decrypt '${vaultFile.name}' and restore it to your storage folder?", fontSize = 12.sp, color = TextMutedSubtitles)
+                    Text("Decrypt '${vaultFile.name}' and restore it to your storage folder?", fontSize = 12.sp, color = textMuted)
                     OutlinedTextField(
                         value = pinActionInput,
                         onValueChange = { if (it.length <= 4) pinActionInput = it },
@@ -1526,49 +2087,52 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Decrypt File")
+                    Text("Decrypt File", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showRestoreVaultFileDialog = null }) { Text("Cancel") }
+                TextButton(onClick = { showRestoreVaultFileDialog = null }) { Text("Cancel", color = textMuted) }
             }
         )
     }
 
-    // Real Computed Storage Analyzer Dialog
+    // Real Computed Storage Analyzer Dialog (Premium One UI / iOS Card format)
     if (showStorageAnalyzerDialog) {
         val breakdown = uiState.storageBreakdown
         AlertDialog(
             onDismissRequest = { showStorageAnalyzerDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.PieChart, contentDescription = null, tint = PrimaryAccentTaupe)
-                    Text("Storage Breakdown", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.PieChart, contentDescription = null, tint = appBlue)
+                    Text("Storage Breakdown", fontWeight = FontWeight.Bold, color = textPrimary)
                 }
             },
             text = {
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (breakdown != null) {
                         val usedFraction = if (breakdown.totalSpaceBytes > 0) breakdown.usedSpaceBytes.toFloat() / breakdown.totalSpaceBytes else 0f
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Storage Used", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = currentTextColor)
-                                Text("${formatFileSize(breakdown.usedSpaceBytes)} / ${formatFileSize(breakdown.totalSpaceBytes)}", fontSize = 12.sp, color = TextMutedSubtitles)
+                                Text("Storage Used", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                Text("${formatFileSize(breakdown.usedSpaceBytes)} / ${formatFileSize(breakdown.totalSpaceBytes)}", fontSize = 12.sp, color = textMuted)
                             }
                             LinearProgressIndicator(
                                 progress = { usedFraction },
-                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                                color = PrimaryAccentTaupe,
-                                trackColor = SoftBorderColor
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(10.dp)
+                                    .clip(CircleShape),
+                                color = appBlue,
+                                trackColor = separatorColor
                             )
-                            Text("${formatFileSize(breakdown.freeSpaceBytes)} free • ${breakdown.totalFileCount} files indexed", fontSize = 10.sp, color = TextMutedSubtitles)
+                            Text("${formatFileSize(breakdown.freeSpaceBytes)} free • ${breakdown.totalFileCount} files indexed", fontSize = 11.sp, color = textMuted)
                         }
 
-                        Divider(color = SoftBorderColor)
+                        HorizontalDivider(color = separatorColor)
 
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(
                                 Triple("Images", breakdown.imageSizeBytes, Icons.Default.Image),
                                 Triple("Videos", breakdown.videoSizeBytes, Icons.Default.Movie),
@@ -1584,23 +2148,23 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Icon(icon, contentDescription = catName, tint = PrimaryAccentTaupe, modifier = Modifier.size(16.dp))
-                                        Text(catName, fontSize = 12.sp, color = currentTextColor)
+                                        Icon(icon, contentDescription = catName, tint = appBlue, modifier = Modifier.size(16.dp))
+                                        Text(catName, fontSize = 13.sp, color = textPrimary)
                                     }
-                                    Text(formatFileSize(size), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = currentTextColor)
+                                    Text(formatFileSize(size), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textPrimary)
                                 }
                             }
                         }
                     } else {
                         Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = PrimaryAccentTaupe)
+                            CircularProgressIndicator(color = appBlue)
                         }
                     }
                 }
             },
             confirmButton = {
-                Button(onClick = { showStorageAnalyzerDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)) {
-                    Text("OK")
+                Button(onClick = { showStorageAnalyzerDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = appBlue)) {
+                    Text("OK", color = Color.White)
                 }
             }
         )
@@ -1612,14 +2176,14 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             onDismissRequest = { showApkInstallerDialog = null },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = PrimaryAccentTaupe)
-                    Text("Install Package", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = appBlue)
+                    Text("Install Package", fontWeight = FontWeight.Bold, color = textPrimary)
                 }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Do you want to install '${apkFile.name}' (${formatFileSize(apkFile.size)}) onto your device?", fontSize = 12.sp, color = currentTextColor)
-                    Text("This launches the Android system package installer.", fontSize = 11.sp, color = TextMutedSubtitles)
+                    Text("Do you want to install '${apkFile.name}' (${formatFileSize(apkFile.size)}) onto your device?", fontSize = 12.sp, color = textPrimary)
+                    Text("This launches the Android system package installer.", fontSize = 11.sp, color = textMuted)
                 }
             },
             confirmButton = {
@@ -1628,13 +2192,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         launchApkInstallerIntent(apkFile)
                         showApkInstallerDialog = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Install APK")
+                    Text("Install APK", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showApkInstallerDialog = null }) { Text("Cancel") }
+                TextButton(onClick = { showApkInstallerDialog = null }) { Text("Cancel", color = textMuted) }
             }
         )
     }
@@ -1642,19 +2206,19 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showFileDetailsDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showFileDetailsDialog = null },
-            title = { Text("File Details & Properties", fontWeight = FontWeight.Bold) },
+            title = { Text("File Details & Properties", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Name: ${file.name}", fontSize = 12.sp, color = currentTextColor)
-                    Text("Path: ${file.path}", fontSize = 11.sp, color = TextMutedSubtitles)
-                    Text("Size: ${formatFileSize(file.size)} (${file.size} bytes)", fontSize = 12.sp, color = currentTextColor)
-                    Text("MIME: ${file.mimeType}", fontSize = 12.sp, color = currentTextColor)
-                    Text("Modified: ${formatDate(file.dateModified)}", fontSize = 12.sp, color = currentTextColor)
+                    Text("Name: ${file.name}", fontSize = 13.sp, color = textPrimary)
+                    Text("Path: ${file.path}", fontSize = 11.sp, color = textMuted)
+                    Text("Size: ${formatFileSize(file.size)} (${file.size} bytes)", fontSize = 13.sp, color = textPrimary)
+                    Text("MIME: ${file.mimeType}", fontSize = 13.sp, color = textPrimary)
+                    Text("Modified: ${formatDate(file.dateModified)}", fontSize = 13.sp, color = textPrimary)
                 }
             },
             confirmButton = {
-                Button(onClick = { showFileDetailsDialog = null }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)) {
-                    Text("OK")
+                Button(onClick = { showFileDetailsDialog = null }, colors = ButtonDefaults.buttonColors(containerColor = appBlue)) {
+                    Text("OK", color = Color.White)
                 }
             }
         )
@@ -1663,34 +2227,36 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showOpenWithDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showOpenWithDialog = null },
-            title = { Text("Open With System App", fontWeight = FontWeight.Bold) },
-            text = { Text("Open '${file.name}' using an external application chooser?", fontSize = 12.sp, color = currentTextColor) },
+            title = { Text("Open With System App", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = { Text("Open '${file.name}' using an external application chooser?", fontSize = 13.sp, color = textPrimary) },
             confirmButton = {
                 Button(
                     onClick = {
                         launchOpenWithIntent(file)
                         showOpenWithDialog = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Open With System App")
+                    Text("Open With System App", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showOpenWithDialog = null }) { Text("Cancel") }
+                TextButton(onClick = { showOpenWithDialog = null }) { Text("Cancel", color = textMuted) }
             }
         )
     }
 
     showTextEditorDialog?.let { file ->
         AlertDialog(
-            onDismissRequest = { showTextEditorDialog = null },
-            title = { Text("Text & Code Editor: ${file.name}", fontWeight = FontWeight.Bold) },
+            onDismissRequest = dismissAndWipe,
+            title = { Text("Text Editor: ${file.name}", fontWeight = FontWeight.Bold, color = textPrimary) },
             text = {
                 OutlinedTextField(
                     value = textEditorContent,
                     onValueChange = { textEditorContent = it },
-                    modifier = Modifier.fillMaxWidth().height(180.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
                 )
             },
             confirmButton = {
@@ -1702,11 +2268,11 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error saving: ${e.message}", Toast.LENGTH_SHORT).show()
                         }
-                        showTextEditorDialog = null
+                        dismissAndWipe()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
                 ) {
-                    Text("Save File")
+                    Text("Save File", color = Color.White)
                 }
             }
         )

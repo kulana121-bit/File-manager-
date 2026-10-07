@@ -63,6 +63,18 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadVaultFiles()
         loadTrashItems()
         loadStorageBreakdown()
+        checkLastSignedInAccount()
+    }
+
+    fun checkLastSignedInAccount() {
+        val account = driveManager.getLastSignedInAccount()
+        if (account != null) {
+            onGoogleSignInSuccess(account)
+        }
+    }
+
+    fun setDriveStatusMessage(msg: String?) {
+        _uiState.value = _uiState.value.copy(driveStatusMessage = msg)
     }
 
     fun startBackgroundScan() {
@@ -145,6 +157,15 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             } catch (e: Exception) {
                 onResult(false, "Decryption error: ${e.message}")
             }
+        }
+    }
+
+    fun decryptVaultFileToCache(vaultFile: File, pin: String): File? {
+        return try {
+            vaultManager.decryptToTempCacheFile(vaultFile, pin)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 
@@ -388,6 +409,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun setCurrentPath(path: String) {
+        _uiState.value = _uiState.value.copy(activeCategory = null, searchQuery = "")
         loadDirectory(File(path))
     }
 

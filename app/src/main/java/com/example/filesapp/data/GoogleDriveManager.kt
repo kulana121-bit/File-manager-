@@ -72,4 +72,15 @@ class GoogleDriveManager(private val context: Context) {
             .requestScopes(Scope(DriveScopes.DRIVE_FILE), Scope(DriveScopes.DRIVE_READONLY))
             .build()
     }
+
+    fun getLastSignedInAccount(): GoogleSignInAccount? {
+        return GoogleSignIn.getLastSignedInAccount(context)
+    }
+
+    fun signOut(onComplete: () -> Unit) {
+        val client = GoogleSignIn.getClient(context, getSignInOptions())
+        client.signOut().addOnCompleteListener {
+            onComplete()
+        }
+    }
 }

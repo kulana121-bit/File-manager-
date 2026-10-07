@@ -129,6 +129,45 @@ class PrivateVaultManager(private val context: Context) {
         return restoredFile
     }
 
+    /**
+     * Decrypts a vault file to a temporary file in the app's cache directory WITHOUT deleting the encrypted file.
+     */
+    fun decryptToTempCacheFile(encryptedFile: File, pin: String): File {
+        if (!encryptedFile.exists()) throw IllegalArgumentException("Encrypted file missing")
+
+        val restoredFileName = encryptedFile.name.removeSuffix(".enc")
+        val cacheDir = File(context.cacheDir, "vault_previews").apply {
+            if (!exists()) mkdirs()
+        }
+        val tempFile = File(cacheDir, restoredFileName)
+
+        FileInputStream(encryptedFile).use { fis ->
+            val salt = ByteArray(16)
+            val iv = ByteArray(12)
+
+            if (fis.read(salt) != 16 || fis.read(iv) != 12) {
+                throw IllegalStateException("Corrupted header in encrypted file")
+            }
+
+            val secretKey = deriveKey(pin.toCharArray(), salt)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val gcmSpec = GCMParameterSpec(128, iv)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, gcmSpec)
+
+            CipherInputStream(fis, cipher).use { cis ->
+                FileOutputStream(tempFile).use { fos ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    while (cis.read(buffer).also { bytesRead = it } != -1) {
+                        fos.write(buffer, 0, bytesRead)
+                    }
+                }
+            }
+        }
+
+        return tempFile
+    }
+
     fun listVaultFiles(): List<File> {
         return vaultDirectory.listFiles()?.toList() ?: emptyList()
     }
