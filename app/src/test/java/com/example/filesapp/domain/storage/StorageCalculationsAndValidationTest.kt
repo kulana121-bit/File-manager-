@@ -1,6 +1,6 @@
 package com.example.filesapp.domain.storage
 
-import com.example.filesapp.domain.analyzer.StorageBreakdownModel
+import com.example.filesapp.data.StorageBreakdownModel
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -34,20 +34,21 @@ class StorageCalculationsAndValidationTest {
 
         val breakdown = StorageBreakdownModel(
             totalSpaceBytes = totalBytes,
-            usedSpaceBytes = usedBytes,
             freeSpaceBytes = freeBytes,
-            imagesBytes = 10_000_000_000L,
-            videosBytes = 20_000_000_000L,
-            audioBytes = 5_000_000_000L,
-            docsBytes = 5_000_000_000L,
-            apksBytes = 2_000_000_000L,
-            archivesBytes = 3_000_000_000L,
-            othersBytes = 0L
+            usedSpaceBytes = usedBytes,
+            imageSizeBytes = 10_000_000_000L,
+            videoSizeBytes = 20_000_000_000L,
+            audioSizeBytes = 5_000_000_000L,
+            docSizeBytes = 5_000_000_000L,
+            apkSizeBytes = 2_000_000_000L,
+            archiveSizeBytes = 3_000_000_000L,
+            otherSizeBytes = 0L,
+            totalFileCount = 42
         )
 
         assertEquals(45, ((breakdown.usedSpaceBytes.toDouble() / breakdown.totalSpaceBytes) * 100).toInt())
         assertEquals(55, ((breakdown.freeSpaceBytes.toDouble() / breakdown.totalSpaceBytes) * 100).toInt())
-        assertEquals(usedBytes, breakdown.imagesBytes + breakdown.videosBytes + breakdown.audioBytes + breakdown.docsBytes + breakdown.apksBytes + breakdown.archivesBytes)
+        assertEquals(usedBytes, breakdown.imageSizeBytes + breakdown.videoSizeBytes + breakdown.audioSizeBytes + breakdown.docSizeBytes + breakdown.apkSizeBytes + breakdown.archiveSizeBytes)
     }
 
     @Test
