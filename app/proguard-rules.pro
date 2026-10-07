@@ -1,52 +1,56 @@
 # R8 / ProGuard rules for FilesApp
+# NOTE: The app package is kept entirely (-keep com.example.filesapp.**).
+# A previous "simplified" ruleset obfuscated app code and caused an
+# immediate crash on launch ("Files keeps stopping"). Do NOT remove the
+# broad app keep rule below.
 
 # 1. SLF4J / Logging
 # org.slf4j.impl.StaticLoggerBinder is an optional logging binding that slf4j-api
 # references statically at compile time (via LoggerFactory.bind()).
-# Since this Android app relies on the default fallback (no-op/NOP logger) and
-# does not package an active SLF4J backend binder, suppressing this warning is 100% safe.
+# The app relies on the default fallback (no-op/NOP logger); suppressing is safe.
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 
-# 2. Gson & Google Play Services / API Client
-# Keep attributes and class members used for JSON serialization and Google client keys
+# 2. KEEP THE ENTIRE APP PACKAGE - prevents R8 from obfuscating app code.
+# Jetpack Compose, Navigation, ViewModels and DI rely on reflection and
+# compiler-generated code that breaks when app classes are renamed/removed.
+-keep class com.example.filesapp.** { *; }
 -keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod
 
+# 3. Gson & Google Play Services / API Client
 -keepclassmembers class * {
     @com.google.api.client.util.Key <fields>;
     @com.google.gson.annotations.SerializedName <fields>;
 }
-
-# Keep Google API Client and Gson classes used in reflection / model mapping
 -keep class com.google.api.client.** { *; }
 -keep class com.google.api.services.drive.** { *; }
 -keep class com.google.gson.** { *; }
-
 -dontwarn com.google.api.client.**
 -dontwarn com.google.api.services.drive.**
 -dontwarn org.apache.http.**
 
-# 3. Apache Commons Compress & XZ & Junrar
-# Suppress warnings for optional / alternative classes not present on Android (like native bindings or optional libraries)
+# 4. Jetpack Compose (extra safety on top of consumer rules)
+-dontwarn androidx.compose.**
+
+# 5. Kotlin Coroutines
+-dontwarn kotlinx.coroutines.**
+
+# 6. Coil Image Loader
+-dontwarn coil.**
+
+# 7. Apache Commons Compress & XZ & Junrar
 -dontwarn org.apache.commons.compress.**
 -dontwarn org.tukaani.xz.**
 -dontwarn com.github.junrar.**
 
-# 4. Commons Net (FTP)
+# 8. Commons Net (FTP)
 -dontwarn org.apache.commons.net.**
 
-# 5. PDFBox Android
-# PDFBox references desktop Java AWT classes (like java.awt.print.PrinterJob) which are absent on Android.
-# Suppressing these warnings is required for correct R8 compilation.
+# 9. PDFBox Android
+# References desktop Java AWT classes absent on Android; suppressing is required.
 -dontwarn com.tom_roush.pdfbox.**
 
-# 6. ZXing QR Code
+# 10. ZXing QR Code
 -dontwarn com.google.zxing.**
 
-# 7. WorkManager
+# 11. WorkManager
 -dontwarn androidx.work.**
-
-# 8. Keep specific data models to avoid shrinking issues during local JSON serialization (e.g. Backup history, duplicates)
--keep class com.example.filesapp.data.** { *; }
--keep class com.example.filesapp.domain.backup.BackupJobConfig { *; }
--keep class com.example.filesapp.domain.backup.BackupHistoryRecord { *; }
--keep class com.example.filesapp.domain.backup.BackupExecutionProgress { *; }
