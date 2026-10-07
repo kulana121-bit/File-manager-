@@ -21,6 +21,7 @@ data class StorageBreakdownModel(
     val audioSizeBytes: Long,
     val docSizeBytes: Long,
     val apkSizeBytes: Long,
+    val archiveSizeBytes: Long,
     val otherSizeBytes: Long,
     val totalFileCount: Int
 )
@@ -105,7 +106,7 @@ class StorageRepository(private val context: Context) {
         val freeSpace = rootDir.freeSpace
         val usedSpace = (totalSpace - freeSpace).coerceAtLeast(0L)
 
-        var img = 0L; var vid = 0L; var aud = 0L; var doc = 0L; var apk = 0L; var oth = 0L
+        var img = 0L; var vid = 0L; var aud = 0L; var doc = 0L; var apk = 0L; var arc = 0L; var oth = 0L
         var count = 0
 
         fun scan(dir: File) {
@@ -124,6 +125,7 @@ class StorageRepository(private val context: Context) {
                         "mp3", "wav", "m4a", "flac" -> aud += len
                         "pdf", "doc", "docx", "txt", "json", "kt", "java", "xml" -> doc += len
                         "apk" -> apk += len
+                        "zip", "rar", "7z", "tar", "gz" -> arc += len
                         else -> oth += len
                     }
                 }
@@ -141,6 +143,7 @@ class StorageRepository(private val context: Context) {
             audioSizeBytes = aud,
             docSizeBytes = doc,
             apkSizeBytes = apk,
+            archiveSizeBytes = arc,
             otherSizeBytes = oth,
             totalFileCount = count
         )

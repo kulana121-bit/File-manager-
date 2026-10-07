@@ -1,5 +1,6 @@
 package com.example.filesapp.ui
 
+import android.content.Intent
 import android.os.Environment
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.example.filesapp.data.AndroidFileModel
 import com.example.filesapp.data.InstalledAppInfo
@@ -62,6 +64,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
     var showTrashDialog by remember { mutableStateOf(false) }
     var showStorageAnalyzerDialog by remember { mutableStateOf(false) }
+    var showMoreMenuDialog by remember { mutableStateOf(false) }
     var showDriveBrowserDialog by remember { mutableStateOf(false) }
     var showOptionsMenuDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -108,6 +111,55 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     fun startGoogleSignIn() {
         val signInClient = GoogleSignIn.getClient(context, viewModel.driveManager.getSignInOptions())
         googleSignInLauncher.launch(signInClient.signInIntent)
+    }
+
+    // Real Intent Handlers
+    fun launchOpenWithIntent(file: AndroidFileModel) {
+        try {
+            val fileObj = File(file.path)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", fileObj)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, file.mimeType.ifEmpty { "*/*" })
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(intent, "Open '${file.name}' with...")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Toast.makeText(context, "No app found to open ${file.name}: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun launchApkInstallerIntent(apkFile: AndroidFileModel) {
+        try {
+            val fileObj = File(apkFile.path)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", fileObj)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Package installer unavailable: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun launchShareIntent(file: AndroidFileModel) {
+        try {
+            val fileObj = File(file.path)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", fileObj)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = file.mimeType.ifEmpty { "*/*" }
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(intent, "Share '${file.name}' via...")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     val filteredFiles = remember(uiState.realFiles, uiState.searchQuery, uiState.activeCategory, activeBottomNav, uiState.starredFiles) {
@@ -179,6 +231,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 }
                                 if (navItem == "Files") {
                                     viewModel.setCategoryFilter(null)
+                                }
+                                if (navItem == "More") {
+                                    showMoreMenuDialog = true
                                 }
                             },
                             shape = RoundedCornerShape(16.dp),
@@ -762,6 +817,49 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         HtmlViewerDialog(file = file, onDismiss = { showHtmlViewerDialog = null })
     }
 
+    // Bottom Nav More Menu Dialog
+    if (showMoreMenuDialog) {
+        AlertDialog(
+            onDismissRequest = { showMoreMenuDialog = false },
+            title = { Text("App Tools & Settings", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            showMoreMenuDialog = false
+                            viewModel.loadStorageBreakdown()
+                            showStorageAnalyzerDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PieChart, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Storage Analyzer", color = currentTextColor, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
+                            showMoreMenuDialog = false
+                            viewModel.toggleDarkMode()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (uiState.isDarkMode) Icons.Default.WbSunny else Icons.Default.NightsStay, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (uiState.isDarkMode) "Switch to Light Mode" else "Switch to Dark Mode", color = currentTextColor)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMoreMenuDialog = false }) { Text("Close") }
+            }
+        )
+    }
+
     // 1. Rename Dialog
     showRenameFileDialog?.let { file ->
         AlertDialog(
@@ -873,7 +971,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         )
     }
 
-    // Options Menu Dialog with Per-File Actions
+    // Options Menu Dialog with Per-File Actions (Details, Open With, Share, Rename, Move, Copy, Vault, Drive, Star, Delete)
     showOptionsMenuDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showOptionsMenuDialog = null },
@@ -891,6 +989,34 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             Icon(Icons.Default.Info, contentDescription = null, tint = PrimaryAccentTaupe)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("File Details & Properties", color = currentTextColor)
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
+                            showOptionsMenuDialog = null
+                            launchOpenWithIntent(file)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Open With System App...", color = currentTextColor)
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
+                            showOptionsMenuDialog = null
+                            launchShareIntent(file)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = PrimaryAccentTaupe)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Share File...", color = currentTextColor)
                         }
                     }
 
@@ -1411,11 +1537,67 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         )
     }
 
+    // Real Computed Storage Analyzer Dialog
     if (showStorageAnalyzerDialog) {
+        val breakdown = uiState.storageBreakdown
         AlertDialog(
             onDismissRequest = { showStorageAnalyzerDialog = false },
-            title = { Text("Storage Analyzer", fontWeight = FontWeight.Bold) },
-            text = { Text("Device storage scan completed. Analyzed real files and app storage.") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.PieChart, contentDescription = null, tint = PrimaryAccentTaupe)
+                    Text("Storage Breakdown", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (breakdown != null) {
+                        val usedFraction = if (breakdown.totalSpaceBytes > 0) breakdown.usedSpaceBytes.toFloat() / breakdown.totalSpaceBytes else 0f
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Storage Used", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = currentTextColor)
+                                Text("${formatFileSize(breakdown.usedSpaceBytes)} / ${formatFileSize(breakdown.totalSpaceBytes)}", fontSize = 12.sp, color = TextMutedSubtitles)
+                            }
+                            LinearProgressIndicator(
+                                progress = { usedFraction },
+                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                                color = PrimaryAccentTaupe,
+                                trackColor = SoftBorderColor
+                            )
+                            Text("${formatFileSize(breakdown.freeSpaceBytes)} free • ${breakdown.totalFileCount} files indexed", fontSize = 10.sp, color = TextMutedSubtitles)
+                        }
+
+                        Divider(color = SoftBorderColor)
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                Triple("Images", breakdown.imageSizeBytes, Icons.Default.Image),
+                                Triple("Videos", breakdown.videoSizeBytes, Icons.Default.Movie),
+                                Triple("Audio", breakdown.audioSizeBytes, Icons.Default.MusicNote),
+                                Triple("Documents", breakdown.docSizeBytes, Icons.Default.Description),
+                                Triple("APKs & Apps", breakdown.apkSizeBytes, Icons.Default.PhoneAndroid),
+                                Triple("Archives", breakdown.archiveSizeBytes, Icons.Default.FolderZip),
+                                Triple("Other Files", breakdown.otherSizeBytes, Icons.Default.InsertDriveFile)
+                            ).forEach { (catName, size, icon) ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(icon, contentDescription = catName, tint = PrimaryAccentTaupe, modifier = Modifier.size(16.dp))
+                                        Text(catName, fontSize = 12.sp, color = currentTextColor)
+                                    }
+                                    Text(formatFileSize(size), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = currentTextColor)
+                                }
+                            }
+                        }
+                    } else {
+                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = PrimaryAccentTaupe)
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 Button(onClick = { showStorageAnalyzerDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)) {
                     Text("OK")
@@ -1424,13 +1606,30 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         )
     }
 
+    // Real Package Installer Dialog
     showApkInstallerDialog?.let { apkFile ->
         AlertDialog(
             onDismissRequest = { showApkInstallerDialog = null },
-            title = { Text("Package Installer", fontWeight = FontWeight.Bold) },
-            text = { Text("Install ${apkFile.name}? Target API 29 (Android 10).") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = PrimaryAccentTaupe)
+                    Text("Install Package", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Do you want to install '${apkFile.name}' (${formatFileSize(apkFile.size)}) onto your device?", fontSize = 12.sp, color = currentTextColor)
+                    Text("This launches the Android system package installer.", fontSize = 11.sp, color = TextMutedSubtitles)
+                }
+            },
             confirmButton = {
-                Button(onClick = { showApkInstallerDialog = null }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)) {
+                Button(
+                    onClick = {
+                        launchApkInstallerIntent(apkFile)
+                        showApkInstallerDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                ) {
                     Text("Install APK")
                 }
             },
@@ -1445,12 +1644,12 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             onDismissRequest = { showFileDetailsDialog = null },
             title = { Text("File Details & Properties", fontWeight = FontWeight.Bold) },
             text = {
-                Column {
-                    Text("Name: ${file.name}")
-                    Text("Path: ${file.path}")
-                    Text("Size: ${formatFileSize(file.size)} (${file.size} bytes)")
-                    Text("Modified: ${formatDate(file.dateModified)}")
-                    Text("Permissions: -rw-r--r--")
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Name: ${file.name}", fontSize = 12.sp, color = currentTextColor)
+                    Text("Path: ${file.path}", fontSize = 11.sp, color = TextMutedSubtitles)
+                    Text("Size: ${formatFileSize(file.size)} (${file.size} bytes)", fontSize = 12.sp, color = currentTextColor)
+                    Text("MIME: ${file.mimeType}", fontSize = 12.sp, color = currentTextColor)
+                    Text("Modified: ${formatDate(file.dateModified)}", fontSize = 12.sp, color = currentTextColor)
                 }
             },
             confirmButton = {
@@ -1464,12 +1663,21 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showOpenWithDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showOpenWithDialog = null },
-            title = { Text("Open With...", fontWeight = FontWeight.Bold) },
-            text = { Text("Choose handler for ${file.name}.") },
+            title = { Text("Open With System App", fontWeight = FontWeight.Bold) },
+            text = { Text("Open '${file.name}' using an external application chooser?", fontSize = 12.sp, color = currentTextColor) },
             confirmButton = {
-                Button(onClick = { showOpenWithDialog = null }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)) {
-                    Text("In-App Handler")
+                Button(
+                    onClick = {
+                        launchOpenWithIntent(file)
+                        showOpenWithDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccentTaupe)
+                ) {
+                    Text("Open With System App")
                 }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOpenWithDialog = null }) { Text("Cancel") }
             }
         )
     }
@@ -1490,8 +1698,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                     onClick = {
                         try {
                             File(file.path).writeText(textEditorContent)
+                            Toast.makeText(context, "Saved ${file.name}", Toast.LENGTH_SHORT).show()
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            Toast.makeText(context, "Error saving: ${e.message}", Toast.LENGTH_SHORT).show()
                         }
                         showTextEditorDialog = null
                     },
