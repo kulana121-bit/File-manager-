@@ -1252,15 +1252,27 @@ fun HtmlViewerDialog(
                 }
             }
 
+            val htmlContent = remember(file.path) {
+                try {
+                    val f = File(file.path)
+                    if (f.exists()) f.readText(Charsets.UTF_8) else "<p>File empty or not found</p>"
+                } catch (e: Exception) {
+                    "<p>Error loading HTML: ${e.message}</p>"
+                }
+            }
+
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
                         webViewClient = WebViewClient()
-                        settings.javaScriptEnabled = true
-                        settings.allowFileAccess = true
+                        settings.javaScriptEnabled = false
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        settings.allowFileAccessFromFileURLs = false
+                        settings.allowUniversalAccessFromFileURLs = false
                         settings.builtInZoomControls = true
                         settings.displayZoomControls = false
-                        loadUrl("file://${file.path}")
+                        loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null)
                     }
                 },
                 modifier = Modifier

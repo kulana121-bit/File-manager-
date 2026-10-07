@@ -122,7 +122,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var showChecksumDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showWifiTransferDialog by remember { mutableStateOf(false) }
     var showNetworkStorageDialog by remember { mutableStateOf(false) }
+    var showBackupEngineDialog by remember { mutableStateOf(false) }
     var showImageToolsDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var showCreateArchiveDialog by remember { mutableStateOf<List<AndroidFileModel>?>(null) }
     var showDriveBrowserDialog by remember { mutableStateOf(false) }
     var showOptionsMenuDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -295,6 +297,28 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             context.startActivity(chooser)
         } catch (e: Exception) {
             Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun handleOpenFile(file: AndroidFileModel) {
+        val ext = file.name.substringAfterLast('.', "").lowercase()
+        when (ext) {
+            "png", "jpg", "jpeg", "webp", "gif", "bmp", "svg" -> showImageViewerDialog = file
+            "mp4", "mkv", "avi", "mov", "webm" -> showVideoPlayerDialog = file
+            "mp3", "wav", "m4a", "flac", "ogg", "aac" -> showAudioPlayerDialog = file
+            "pdf" -> showPdfViewerDialog = file
+            "html", "htm" -> showHtmlViewerDialog = file
+            "csv" -> showCsvViewerDialog = file
+            "md" -> showMarkdownViewerDialog = file
+            "epub" -> showEpubReaderDialog = file
+            "apk" -> showApkInstallerDialog = file
+            "zip", "7z", "rar", "tar", "tar.gz", "tgz", "tar.bz2", "gz", "xz" -> showExtractZipDialog = file
+            "txt", "json", "kt", "java", "xml", "js", "css", "ts", "py", "c", "cpp", "h" -> {
+                val f = File(file.path)
+                textEditorContent = if (f.exists() && f.canRead()) f.readText() else "Empty file"
+                showTextEditorDialog = file
+            }
+            else -> showFileDetailsDialog = file
         }
     }
 
@@ -1078,6 +1102,40 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                     Icon(Icons.Outlined.Dns, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
                                                 }
                                                 Text("FTP / SMB", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                            }
+                                        }
+                                    }
+
+                                    // Backup & Restore Engine Card
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .bounceClick()
+                                            .clickable {
+                                                showBackupEngineDialog = true
+                                            },
+                                        shape = RoundedCornerShape(26.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardColor),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                        border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(appIndigo.copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Outlined.CloudUpload, contentDescription = null, tint = appIndigo, modifier = Modifier.size(20.dp))
+                                            }
+                                            Column {
+                                                Text("Backup & Restore", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text("Incremental snapshots to Drive, Local, or FTP", fontSize = 11.sp, color = textMuted)
                                             }
                                         }
                                     }
@@ -2634,6 +2692,35 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                         }
                                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textMuted)
                                     }
+
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = separatorColor)
+
+                                    // Backup & Restore Row
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .clickable {
+                                                showBackupEngineDialog = true
+                                            }
+                                            .padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                            Box(
+                                                modifier = Modifier.size(42.dp).clip(CircleShape).background(appIndigo.copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Outlined.CloudUpload, contentDescription = null, tint = appIndigo, modifier = Modifier.size(22.dp))
+                                            }
+                                            Column {
+                                                Text("Backup & Restore Engine", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text("Incremental backups to cloud, local & FTP", fontSize = 11.sp, color = textMuted)
+                                            }
+                                        }
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textMuted)
+                                    }
                                 }
                             }
                         }
@@ -3051,6 +3138,67 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         }
                     }
 
+                    // Compress to ZIP / 7Z
+                    TextButton(
+                        onClick = {
+                            showOptionsMenuDialog = null
+                            showCreateArchiveDialog = listOf(file)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.FolderZip, contentDescription = null, tint = appBlue)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Compress (ZIP / 7-Zip)...", color = textPrimary, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    val isArchiveFile = file.name.endsWith(".zip", true) ||
+                            file.name.endsWith(".7z", true) ||
+                            file.name.endsWith(".rar", true) ||
+                            file.name.endsWith(".tar", true) ||
+                            file.name.endsWith(".tar.gz", true) ||
+                            file.name.endsWith(".tgz", true) ||
+                            file.name.endsWith(".gz", true) ||
+                            file.name.endsWith(".xz", true)
+
+                    if (isArchiveFile) {
+                        TextButton(
+                            onClick = {
+                                showOptionsMenuDialog = null
+                                val currentFolder = File(file.path).parentFile ?: File(uiState.currentPath)
+                                viewModel.extractZipArchive(File(file.path), currentFolder) { success ->
+                                    Toast.makeText(context, if (success) "Extracted '${file.name}'" else "Extraction failed", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.Unarchive, contentDescription = null, tint = appBlue)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Extract Here", color = textPrimary, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        TextButton(
+                            onClick = {
+                                showOptionsMenuDialog = null
+                                val baseFolderName = file.name.substringBeforeLast('.')
+                                val targetSubfolder = File(File(file.path).parentFile ?: File(uiState.currentPath), baseFolderName)
+                                viewModel.extractZipArchive(File(file.path), targetSubfolder) { success ->
+                                    Toast.makeText(context, if (success) "Extracted to folder '$baseFolderName'" else "Extraction failed", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.CreateNewFolder, contentDescription = null, tint = appBlue)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Extract to Folder...", color = textPrimary, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+
                     TextButton(
                         onClick = {
                             showOptionsMenuDialog = null
@@ -3123,10 +3271,18 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         )
     }
 
-    // Trash Screen Dialog (iOS Styled Sheet)
+    var trashItemToDeletePermanently by remember { mutableStateOf<TrashItemModel?>(null) }
+    var showEmptyTrashConfirmDialog by remember { mutableStateOf(false) }
+    var showDriveCreateFolderDialog by remember { mutableStateOf(false) }
+    var driveFileToRename by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var driveFileToDelete by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var driveFileDetails by remember { mutableStateOf<AndroidFileModel?>(null) }
+
+    // Enhanced Trash Bin Dialog with Full Safe Deletion Confirmations & Auto-Cleanup Config
     if (showTrashDialog) {
         AlertDialog(
             onDismissRequest = { showTrashDialog = false },
+            shape = RoundedCornerShape(28.dp),
             title = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -3140,32 +3296,64 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
                     if (uiState.trashItems.isNotEmpty()) {
                         TextButton(
-                            onClick = {
-                                viewModel.emptyTrash { success, msg ->
-                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                            onClick = { showEmptyTrashConfirmDialog = true }
                         ) {
-                            Text("Empty Trash", color = appRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Empty All", color = appRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             },
             text = {
-                Column(modifier = Modifier.fillMaxWidth().height(340.dp)) {
-                    Text("Items in trash are auto-deleted after 30 days.", fontSize = 11.sp, color = textMuted)
-                    Spacer(modifier = Modifier.height(12.dp))
+                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                    // Auto-cleanup setting selector
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = cardSubtle,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Auto-cleanup:", fontSize = 11.sp, color = textMuted)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                listOf(7, 30, 60, -1).forEach { days ->
+                                    val isSelected = uiState.autoCleanTrashDays == days
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (isSelected) appBlue else Color.Transparent,
+                                        modifier = Modifier.clickable { viewModel.setAutoCleanTrashDays(days) }
+                                    ) {
+                                        Text(
+                                            text = if (days == -1) "Off" else "${days}d",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.White else textMuted,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     if (uiState.trashItems.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = textMuted, modifier = Modifier.size(36.dp))
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text("Trash is empty", fontSize = 12.sp, color = textMuted)
+                                Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = textMuted, modifier = Modifier.size(40.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Trash is empty", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = textMuted)
+                                Text("Deleted files will be retained safely here", fontSize = 11.sp, color = textMuted)
                             }
                         }
                     } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             items(uiState.trashItems) { trashItem ->
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
@@ -3173,13 +3361,14 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                     colors = CardDefaults.cardColors(containerColor = cardColor)
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(trashItem.originalName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text("${formatDate(trashItem.trashedAtTimestamp)} • ${formatFileSize(trashItem.size)}", fontSize = 10.sp, color = textMuted)
+                                            Text(trashItem.originalName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("From: ${trashItem.originalParentPath}", fontSize = 10.sp, color = textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("${formatDate(trashItem.trashedAtTimestamp)} • ${formatFileSize(trashItem.size)} • ${trashItem.mimeType.substringAfter('/')}", fontSize = 10.sp, color = appBlue)
                                         }
 
                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -3189,20 +3378,16 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                                     }
                                                 },
-                                                modifier = Modifier.size(32.dp)
+                                                modifier = Modifier.size(34.dp).clip(CircleShape).background(appBlue.copy(alpha = 0.1f)).bounceClick()
                                             ) {
-                                                Icon(Icons.Default.Restore, contentDescription = "Restore", tint = appBlue)
+                                                Icon(Icons.Default.Restore, contentDescription = "Restore", tint = appBlue, modifier = Modifier.size(18.dp))
                                             }
 
                                             IconButton(
-                                                onClick = {
-                                                    viewModel.deletePermanentlyFromTrash(trashItem.trashedFile) { success, msg ->
-                                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                                    }
-                                                },
-                                                modifier = Modifier.size(32.dp)
+                                                onClick = { trashItemToDeletePermanently = trashItem },
+                                                modifier = Modifier.size(34.dp).clip(CircleShape).background(appRed.copy(alpha = 0.1f)).bounceClick()
                                             ) {
-                                                Icon(Icons.Default.DeleteForever, contentDescription = "Delete Permanently", tint = appRed)
+                                                Icon(Icons.Default.DeleteForever, contentDescription = "Delete Permanently", tint = appRed, modifier = Modifier.size(18.dp))
                                             }
                                         }
                                     }
@@ -3213,63 +3398,276 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 }
             },
             confirmButton = {
-                Button(onClick = { showTrashDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = appBlue)) {
+                Button(onClick = { showTrashDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = appBlue), shape = CircleShape) {
                     Text("Close", color = Color.White)
                 }
             }
         )
     }
 
-    // Google Drive Browser Dialog
-    if (showDriveBrowserDialog) {
+    // Permanent delete confirmation dialog for individual trash item
+    trashItemToDeletePermanently?.let { item ->
         AlertDialog(
-            onDismissRequest = { showDriveBrowserDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Cloud, contentDescription = null, tint = appBlue)
-                    Text("Google Drive Browser", fontWeight = FontWeight.Bold, color = textPrimary)
+            onDismissRequest = { trashItemToDeletePermanently = null },
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("Delete Permanently?", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                Text("Are you sure you want to permanently delete '${item.originalName}'? This action cannot be undone.", fontSize = 13.sp, color = textMuted)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val target = item.trashedFile
+                        trashItemToDeletePermanently = null
+                        viewModel.deletePermanentlyFromTrash(target) { success, msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appRed),
+                    shape = CircleShape
+                ) {
+                    Text("Delete Forever", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-                    Text("Account: ${uiState.driveUserEmail ?: "Connected"}", fontSize = 12.sp, color = textMuted)
-                    Spacer(modifier = Modifier.height(10.dp))
+            dismissButton = {
+                TextButton(onClick = { trashItemToDeletePermanently = null }) {
+                    Text("Cancel", color = textMuted)
+                }
+            }
+        )
+    }
 
-                    if (uiState.driveFiles.isEmpty()) {
+    // Empty entire trash confirmation dialog
+    if (showEmptyTrashConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showEmptyTrashConfirmDialog = false },
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("Empty Entire Trash Bin?", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                Text("This will permanently delete all ${uiState.trashItems.size} items from the Trash Bin. This action cannot be recovered.", fontSize = 13.sp, color = textMuted)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showEmptyTrashConfirmDialog = false
+                        viewModel.emptyTrash { success, msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appRed),
+                    shape = CircleShape
+                ) {
+                    Text("Empty Everything", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmptyTrashConfirmDialog = false }) {
+                    Text("Cancel", color = textMuted)
+                }
+            }
+        )
+    }
+
+    // Complete Google Drive Browser Dialog with Navigation, Search, Folders, & Actions
+    if (showDriveBrowserDialog) {
+        var driveSearchText by remember { mutableStateOf("") }
+        var isSearchActive by remember { mutableStateOf(false) }
+
+        Dialog(
+            onDismissRequest = { showDriveBrowserDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize().systemBarsPadding()
+                ) {
+                    // Drive Header
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = cardColor,
+                        shadowElevation = 2.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                IconButton(
+                                    onClick = { showDriveBrowserDialog = false },
+                                    modifier = Modifier.size(38.dp).clip(CircleShape).background(cardSubtle)
+                                ) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = "Close", tint = textPrimary)
+                                }
+                                Column {
+                                    Text("Google Drive", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                    Text(uiState.driveUserEmail ?: "Cloud Storage", fontSize = 11.sp, color = textMuted)
+                                }
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                IconButton(
+                                    onClick = { showDriveCreateFolderDialog = true },
+                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(cardSubtle).bounceClick()
+                                ) {
+                                    Icon(Icons.Default.CreateNewFolder, contentDescription = "New Folder", tint = appBlue, modifier = Modifier.size(18.dp))
+                                }
+
+                                IconButton(
+                                    onClick = { isSearchActive = !isSearchActive },
+                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(cardSubtle).bounceClick()
+                                ) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search", tint = appBlue, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    // Breadcrumb navigation & Search bar
+                    if (isSearchActive) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = cardColor
+                        ) {
+                            OutlinedTextField(
+                                value = driveSearchText,
+                                onValueChange = {
+                                    driveSearchText = it
+                                    viewModel.searchDriveFiles(it)
+                                },
+                                placeholder = { Text("Search files in Drive...", fontSize = 13.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (driveSearchText.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            driveSearchText = ""
+                                            viewModel.searchDriveFiles("")
+                                        }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    } else {
+                        // Breadcrumbs bar
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = cardSubtle
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (uiState.driveBreadcrumbs.size > 1) {
+                                    IconButton(
+                                        onClick = { viewModel.navigateDriveBack() },
+                                        modifier = Modifier.size(28.dp).clip(CircleShape).background(cardColor)
+                                    ) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Up", tint = textPrimary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                Text(
+                                    text = uiState.driveBreadcrumbs.joinToString(" / ") { it.second },
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    // File List
+                    if (uiState.isScanning) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = textMuted, modifier = Modifier.size(36.dp))
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text("No Google Drive files found", fontSize = 12.sp, color = textMuted)
+                            CircularProgressIndicator(color = appBlue)
+                        }
+                    } else if (uiState.driveFiles.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = textMuted, modifier = Modifier.size(44.dp))
+                                Text("No files found in this Drive folder", fontSize = 13.sp, color = textMuted)
                             }
                         }
                     } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(uiState.driveFiles) { driveFile ->
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(uiState.driveFiles, key = { it.id }) { driveFile ->
                                 Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            if (driveFile.isDirectory) {
+                                                viewModel.navigateDriveFolder(driveFile.id, driveFile.name)
+                                            }
+                                        },
+                                    shape = RoundedCornerShape(18.dp),
                                     colors = CardDefaults.cardColors(containerColor = cardColor)
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(driveFile.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text(formatFileSize(driveFile.size), fontSize = 10.sp, color = textMuted)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier.size(40.dp).clip(CircleShape).background(if (driveFile.isDirectory) appBlue.copy(alpha = 0.12f) else cardSubtle),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    if (driveFile.isDirectory) Icons.Default.Folder else Icons.Outlined.InsertDriveFile,
+                                                    contentDescription = null,
+                                                    tint = if (driveFile.isDirectory) appBlue else textMuted,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text(driveFile.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(if (driveFile.isDirectory) "Folder" else "${formatFileSize(driveFile.size)} • ${formatDate(driveFile.dateModified)}", fontSize = 11.sp, color = textMuted)
+                                            }
                                         }
 
-                                        IconButton(
-                                            onClick = {
-                                                viewModel.downloadDriveFileToLocal(driveFile.id, driveFile.name) { success, msg ->
-                                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            if (!driveFile.isDirectory) {
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.downloadDriveFileToLocal(driveFile.id, driveFile.name) { success, msg ->
+                                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(34.dp).clip(CircleShape).background(appBlue.copy(alpha = 0.1f)).bounceClick()
+                                                ) {
+                                                    Icon(Icons.Default.Download, contentDescription = "Download", tint = appBlue, modifier = Modifier.size(18.dp))
                                                 }
-                                            },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(Icons.Default.Download, contentDescription = "Download", tint = appBlue)
+                                            }
+
+                                            IconButton(
+                                                onClick = { driveFileToRename = driveFile },
+                                                modifier = Modifier.size(34.dp).clip(CircleShape).background(cardSubtle).bounceClick()
+                                            ) {
+                                                Icon(Icons.Default.Edit, contentDescription = "Rename", tint = textMuted, modifier = Modifier.size(16.dp))
+                                            }
+
+                                            IconButton(
+                                                onClick = { driveFileToDelete = driveFile },
+                                                modifier = Modifier.size(34.dp).clip(CircleShape).background(appRed.copy(alpha = 0.1f)).bounceClick()
+                                            ) {
+                                                Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = appRed, modifier = Modifier.size(16.dp))
+                                            }
                                         }
                                     }
                                 }
@@ -3277,10 +3675,118 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Create Drive Folder Dialog
+    if (showDriveCreateFolderDialog) {
+        var folderNameInput by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showDriveCreateFolderDialog = false },
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("New Drive Folder", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = folderNameInput,
+                    onValueChange = { folderNameInput = it },
+                    label = { Text("Folder Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
             },
             confirmButton = {
-                Button(onClick = { showDriveBrowserDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = appBlue)) {
-                    Text("Close", color = Color.White)
+                Button(
+                    onClick = {
+                        if (folderNameInput.isNotBlank()) {
+                            viewModel.createDriveFolder(folderNameInput.trim()) { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                            showDriveCreateFolderDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                    shape = CircleShape
+                ) {
+                    Text("Create", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDriveCreateFolderDialog = false }) {
+                    Text("Cancel", color = textMuted)
+                }
+            }
+        )
+    }
+
+    // Rename Drive File Dialog
+    driveFileToRename?.let { driveFile ->
+        var renameInput by remember { mutableStateOf(driveFile.name) }
+        AlertDialog(
+            onDismissRequest = { driveFileToRename = null },
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("Rename in Drive", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    label = { Text("New Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (renameInput.isNotBlank()) {
+                            val id = driveFile.id
+                            driveFileToRename = null
+                            viewModel.renameDriveFile(id, renameInput.trim()) { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                    shape = CircleShape
+                ) {
+                    Text("Rename", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { driveFileToRename = null }) {
+                    Text("Cancel", color = textMuted)
+                }
+            }
+        )
+    }
+
+    // Delete Drive File Confirmation Dialog
+    driveFileToDelete?.let { driveFile ->
+        AlertDialog(
+            onDismissRequest = { driveFileToDelete = null },
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("Delete from Drive?", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                Text("Are you sure you want to delete '${driveFile.name}' from Google Drive?", fontSize = 13.sp, color = textMuted)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val id = driveFile.id
+                        driveFileToDelete = null
+                        viewModel.deleteDriveFile(id) { success, msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appRed),
+                    shape = CircleShape
+                ) {
+                    Text("Delete", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { driveFileToDelete = null }) {
+                    Text("Cancel", color = textMuted)
                 }
             }
         )
@@ -3424,74 +3930,45 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         )
     }
 
-    // Real Computed Storage Analyzer Dialog (Premium One UI / iOS Card format)
+    // Real Computed Storage Analyzer Dialog (Google Files Style with Overview, Largest Files, and Empty Folders)
     if (showStorageAnalyzerDialog) {
-        val breakdown = uiState.storageBreakdown
-        AlertDialog(
-            onDismissRequest = { showStorageAnalyzerDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.PieChart, contentDescription = null, tint = appBlue)
-                    Text("Storage Breakdown", fontWeight = FontWeight.Bold, color = textPrimary)
-                }
+        GoogleFilesStorageAnalyzerDialog(
+            viewModel = viewModel,
+            onDismiss = { showStorageAnalyzerDialog = false },
+            onNavigateCategory = { catId ->
+                viewModel.setCategoryFilter(catId)
+                activeBottomNav = "Files"
             },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (breakdown != null) {
-                        val usedFraction = if (breakdown.totalSpaceBytes > 0) breakdown.usedSpaceBytes.toFloat() / breakdown.totalSpaceBytes else 0f
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Storage Used", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary)
-                                Text("${formatFileSize(breakdown.usedSpaceBytes)} / ${formatFileSize(breakdown.totalSpaceBytes)}", fontSize = 12.sp, color = textMuted)
-                            }
-                            LinearProgressIndicator(
-                                progress = { usedFraction },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(10.dp)
-                                    .clip(CircleShape),
-                                color = appBlue,
-                                trackColor = separatorColor
-                            )
-                            Text("${formatFileSize(breakdown.freeSpaceBytes)} free • ${breakdown.totalFileCount} files indexed", fontSize = 11.sp, color = textMuted)
-                        }
+            onOpenFile = { file ->
+                handleOpenFile(file)
+            },
+            onOpenDuplicates = {
+                showDuplicateFinderDialog = true
+            }
+        )
+    }
 
-                        HorizontalDivider(color = separatorColor)
-
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(
-                                Triple("Images", breakdown.imageSizeBytes, Icons.Default.Image),
-                                Triple("Videos", breakdown.videoSizeBytes, Icons.Default.Movie),
-                                Triple("Audio", breakdown.audioSizeBytes, Icons.Default.MusicNote),
-                                Triple("Documents", breakdown.docSizeBytes, Icons.Default.Description),
-                                Triple("APKs & Apps", breakdown.apkSizeBytes, Icons.Default.PhoneAndroid),
-                                Triple("Archives", breakdown.archiveSizeBytes, Icons.Default.FolderZip),
-                                Triple("Other Files", breakdown.otherSizeBytes, Icons.Default.InsertDriveFile)
-                            ).forEach { (catName, size, icon) ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Icon(icon, contentDescription = catName, tint = appBlue, modifier = Modifier.size(16.dp))
-                                        Text(catName, fontSize = 13.sp, color = textPrimary)
-                                    }
-                                    Text(formatFileSize(size), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textPrimary)
-                                }
-                            }
-                        }
-                    } else {
-                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = appBlue)
-                        }
+    // Create Archive Dialog (ZIP / 7Z with Levels)
+    showCreateArchiveDialog?.let { filesToCompress ->
+        val fileObjs = filesToCompress.map { File(it.path) }
+        val targetDir = File(uiState.currentPath)
+        val defaultName = if (filesToCompress.size == 1) filesToCompress[0].name.substringBeforeLast('.') else "Archive"
+        CreateArchiveDialog(
+            selectedFiles = fileObjs,
+            defaultName = defaultName,
+            targetDirectory = targetDir,
+            onDismiss = { showCreateArchiveDialog = null },
+            onCreateArchive = { format, name, level ->
+                if (format == com.example.filesapp.domain.archive.ArchiveFormat.SEVEN_Z) {
+                    viewModel.create7zArchive(fileObjs, name, targetDir, level) { success ->
+                        Toast.makeText(context, if (success) "Created '$name.7z'" else "Failed to create 7Z archive", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    viewModel.createZipArchive(fileObjs, name, targetDir, level) { success ->
+                        Toast.makeText(context, if (success) "Created '$name.zip'" else "Failed to create ZIP archive", Toast.LENGTH_SHORT).show()
                     }
                 }
-            },
-            confirmButton = {
-                Button(onClick = { showStorageAnalyzerDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = appBlue)) {
-                    Text("OK", color = Color.White)
-                }
+                showCreateArchiveDialog = null
             }
         )
     }
@@ -3614,6 +4091,25 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         NetworkStorageDialog(
             viewModel = viewModel,
             onDismiss = { showNetworkStorageDialog = false }
+        )
+    }
+
+    // Backup & Restore Engine Dialog
+    if (showBackupEngineDialog) {
+        BackupEngineDialog(
+            viewModel = viewModel,
+            onDismiss = { showBackupEngineDialog = false }
+        )
+    }
+
+    // Real-Time File Transfer Progress Dialog (Copy / Move)
+    uiState.activeTransfer?.let { transfer ->
+        TransferProgressDialog(
+            progress = transfer,
+            onCancel = {
+                viewModel.cancelCurrentTransfer()
+                Toast.makeText(context, "Cancelling transfer...", Toast.LENGTH_SHORT).show()
+            }
         )
     }
 

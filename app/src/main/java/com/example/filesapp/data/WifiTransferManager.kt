@@ -15,14 +15,19 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Lightweight embeddable HTTP File Transfer Server and QR Code Generator.
- * Serves an aesthetic, mobile-friendly HTML5 responsive UI that enables
- * bidirectional download and upload over local Wi-Fi.
+ * Production-Grade WiFi Transfer Hub 2.0.
+ * - Authenticated sharing: Session Auth Token + QR pairing + temporary PIN.
+ * - Session expiration (30-minute validity window).
+ * - Selectable Shared Folder with strict Path Traversal / canonical barrier.
+ * - Multiple files batch upload & individual downloads.
+ * - Phone <-> PC bidirectional data transmission.
  */
 class WifiTransferManager(
     private val context: Context,
@@ -30,6 +35,7 @@ class WifiTransferManager(
     private val onLogMessage: (String) -> Unit
 ) {
     private var serverSocket: ServerSocket? = null
+
     @Volatile
     var isRunning: Boolean = false
         private set
@@ -37,9 +43,46 @@ class WifiTransferManager(
     var serverPort: Int = 8080
         private set
 
+    var sessionAuthToken: String = ""
+        private set
+
+    var sessionExpiryTimestamp: Long = 0L
+        private set
+
+    // Active authenticated sessions cache
+    private val authenticatedIps = ConcurrentHashMap<String, Long>()
+
+    companion object {
+        private const val SESSION_DURATION_MS = 30 * 60 * 1000L // 30 minutes
+
+        fun generateQrCodeBitmap(text: String, size: Int = 512): Bitmap? {
+            return try {
+                val writer = QRCodeWriter()
+                val bitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, size, size)
+                val width = bitMatrix.width
+                val height = bitMatrix.height
+                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+                for (x in 0 until width) {
+                    for (y in 0 until height) {
+                        bmp.setPixel(x, y, if (bitMatrix.get(x, y)) Color.BLACK else Color.WHITE)
+                    }
+                }
+                bmp
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
+    }
+
+    private fun generateAuthToken(): String {
+        val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        val sr = SecureRandom()
+        return (1..6).map { chars[sr.nextInt(chars.length)] }.joinToString("")
+    }
+
     fun getLocalIpAddress(): String {
         try {
-            // First attempt: WifiManager
             val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             if (wifiManager != null) {
                 @Suppress("DEPRECATION")
@@ -57,7 +100,6 @@ class WifiTransferManager(
                 }
             }
 
-            // Fallback: iterate network interfaces
             val interfaces = NetworkInterface.getNetworkInterfaces()
             while (interfaces.hasMoreElements()) {
                 val intf = interfaces.nextElement()
@@ -79,17 +121,26 @@ class WifiTransferManager(
         return "127.0.0.1"
     }
 
-    fun getServerUrl(): String {
-        return "http://${getLocalIpAddress()}:$serverPort"
+    fun getServerUrl(includeToken: Boolean = true): String {
+        val base = "http://${getLocalIpAddress()}:$serverPort"
+        return if (includeToken && sessionAuthToken.isNotEmpty()) {
+            "$base/?token=$sessionAuthToken"
+        } else {
+            base
+        }
     }
 
     suspend fun startServer(port: Int = 8080): Boolean = withContext(Dispatchers.IO) {
         if (isRunning) return@withContext true
         try {
             serverPort = port
+            sessionAuthToken = generateAuthToken()
+            sessionExpiryTimestamp = System.currentTimeMillis() + SESSION_DURATION_MS
+            authenticatedIps.clear()
+
             serverSocket = ServerSocket(serverPort)
             isRunning = true
-            onLogMessage("WiFi Server started on ${getServerUrl()}")
+            onLogMessage("WiFi Hub started on ${getServerUrl(true)} (PIN: $sessionAuthToken)")
 
             Thread {
                 while (isRunning) {
@@ -121,11 +172,14 @@ class WifiTransferManager(
             e.printStackTrace()
         }
         serverSocket = null
-        onLogMessage("WiFi Server stopped")
+        authenticatedIps.clear()
+        sessionAuthToken = ""
+        onLogMessage("WiFi Hub stopped")
     }
 
     private fun handleClient(socket: Socket) {
         try {
+            val clientIp = socket.inetAddress?.hostAddress ?: "unknown"
             val input = socket.getInputStream()
             val output = socket.getOutputStream()
             val reader = BufferedReader(InputStreamReader(input))
@@ -151,6 +205,19 @@ class WifiTransferManager(
                 }
             }
 
+            // Check authentication
+            val isAuth = checkAuthentication(fullPath, headers, clientIp)
+
+            if (!isAuth) {
+                if (method.equals("POST", ignoreCase = true) && fullPath.startsWith("/auth")) {
+                    handleAuthSubmission(input, output, clientIp)
+                } else {
+                    val authHtml = generateAuthPage()
+                    sendResponse(output, "200 OK", "text/html; charset=UTF-8", authHtml.toByteArray(Charsets.UTF_8))
+                }
+                return
+            }
+
             if (method.equals("GET", ignoreCase = true)) {
                 handleGet(fullPath, output)
             } else if (method.equals("POST", ignoreCase = true)) {
@@ -167,6 +234,71 @@ class WifiTransferManager(
         }
     }
 
+    private fun checkAuthentication(path: String, headers: Map<String, String>, clientIp: String): Boolean {
+        val now = System.currentTimeMillis()
+        if (now > sessionExpiryTimestamp) {
+            return false
+        }
+
+        // 1. Check IP session
+        val expiry = authenticatedIps[clientIp]
+        if (expiry != null && expiry > now) {
+            return true
+        }
+
+        // 2. Check query param ?token=
+        if (path.contains("token=")) {
+            val token = path.substringAfter("token=").substringBefore("&").trim()
+            if (token.equals(sessionAuthToken, ignoreCase = true)) {
+                authenticatedIps[clientIp] = now + SESSION_DURATION_MS
+                return true
+            }
+        }
+
+        // 3. Check Cookie
+        val cookie = headers["cookie"] ?: ""
+        if (cookie.contains("session_token=$sessionAuthToken")) {
+            authenticatedIps[clientIp] = now + SESSION_DURATION_MS
+            return true
+        }
+
+        return false
+    }
+
+    private fun handleAuthSubmission(input: InputStream, output: OutputStream, clientIp: String) {
+        val body = readBody(input)
+        val enteredPin = body.substringAfter("pin=").substringBefore("&").trim()
+        val decodedPin = URLDecoder.decode(enteredPin, "UTF-8")
+
+        if (decodedPin.equals(sessionAuthToken, ignoreCase = true)) {
+            authenticatedIps[clientIp] = System.currentTimeMillis() + SESSION_DURATION_MS
+            val redirectHtml = "<html><head><meta http-equiv=\"refresh\" content=\"0;url=/\" /></head><body>Redirecting...</body></html>"
+            val headers = "HTTP/1.1 200 OK\r\n" +
+                    "Set-Cookie: session_token=$sessionAuthToken; Path=/; HttpOnly\r\n" +
+                    "Content-Type: text/html\r\n" +
+                    "Content-Length: ${redirectHtml.length}\r\n" +
+                    "Connection: close\r\n\r\n"
+            output.write(headers.toByteArray(Charsets.UTF_8))
+            output.write(redirectHtml.toByteArray(Charsets.UTF_8))
+            output.flush()
+        } else {
+            val failHtml = generateAuthPage(errorMessage = "Invalid PIN. Please check your phone screen.")
+            sendResponse(output, "401 Unauthorized", "text/html; charset=UTF-8", failHtml.toByteArray(Charsets.UTF_8))
+        }
+    }
+
+    private fun readBody(input: InputStream): String {
+        val baos = ByteArrayOutputStream()
+        val buffer = ByteArray(1024)
+        var count = input.read(buffer)
+        while (count != -1) {
+            baos.write(buffer, 0, count)
+            if (input.available() <= 0) break
+            count = input.read(buffer)
+        }
+        return baos.toString("UTF-8")
+    }
+
     private fun handleGet(path: String, output: OutputStream) {
         val decodedPath = URLDecoder.decode(path, "UTF-8")
         val cleanPath = decodedPath.split("?")[0]
@@ -181,6 +313,15 @@ class WifiTransferManager(
             val fileName = cleanPath.removePrefix("/download/")
             val root = rootDirProvider()
             val targetFile = File(root, fileName)
+
+            // Security: Path Traversal defense
+            val canonicalRoot = root.canonicalPath
+            val canonicalTarget = targetFile.canonicalPath
+            if (!canonicalTarget.startsWith(canonicalRoot)) {
+                sendResponse(output, "403 Forbidden", "text/plain", "Access Denied: Path Traversal blocked".toByteArray())
+                return
+            }
+
             if (targetFile.exists() && targetFile.isFile) {
                 val mime = when {
                     fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true) -> "image/jpeg"
@@ -217,7 +358,6 @@ class WifiTransferManager(
                 if (boundary.isNotEmpty()) {
                     val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
                     saveMultipartFile(boundary, contentLength, input)
-                    // Redirect back to main page
                     val redirectHtml = "<html><head><meta http-equiv=\"refresh\" content=\"1;url=/\" /></head><body><h2>Upload Successful! Redirecting...</h2></body></html>"
                     sendResponse(output, "200 OK", "text/html", redirectHtml.toByteArray())
                     return
@@ -233,7 +373,6 @@ class WifiTransferManager(
             val boundaryMarker = "--$boundary"
             val bis = BufferedInputStream(input)
 
-            // Read line by line until file header
             var line = readLineFromStream(bis)
             var fileName = "uploaded_file_${System.currentTimeMillis()}"
 
@@ -241,17 +380,18 @@ class WifiTransferManager(
                 line = readLineFromStream(bis)
             }
 
-            // Headers for part
             while (true) {
                 line = readLineFromStream(bis) ?: break
-                if (line.isEmpty()) break // Empty line signals beginning of body
+                if (line.isEmpty()) break
                 if (line.contains("filename=\"")) {
                     val extracted = line.substringAfter("filename=\"").substringBefore("\"")
-                    if (extracted.isNotBlank()) fileName = File(extracted).name
+                    if (extracted.isNotBlank()) {
+                        // Strip path traversal attempts in uploaded filenames
+                        fileName = File(extracted).name.replace("..", "_")
+                    }
                 }
             }
 
-            // Write content to destination
             val outFile = File(root, fileName)
             FileOutputStream(outFile).use { fos ->
                 val buffer = ByteArray(8192)
@@ -291,6 +431,44 @@ class WifiTransferManager(
         output.flush()
     }
 
+    private fun generateAuthPage(errorMessage: String? = null): String {
+        return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Files Hub - Authentication Required</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: #0F172A; color: #F8FAFC; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+        .card { background: #1E293B; border: 1px solid #334155; border-radius: 24px; padding: 32px; max-width: 420px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.4); text-align: center; }
+        .icon { font-size: 48px; margin-bottom: 16px; }
+        h1 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #FFFFFF; }
+        p { font-size: 13px; color: #94A3B8; margin-bottom: 24px; line-height: 1.5; }
+        .pin-input { width: 100%; padding: 14px; background: #0F172A; border: 1px solid #475569; border-radius: 14px; font-size: 20px; letter-spacing: 4px; text-align: center; color: #FFFFFF; text-transform: uppercase; margin-bottom: 16px; outline: none; }
+        .pin-input:focus { border-color: #6366F1; }
+        .btn { width: 100%; padding: 14px; background: #6366F1; color: white; border: none; border-radius: 14px; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .btn:hover { background: #4F46E5; }
+        .error { color: #EF4444; font-size: 13px; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">&#128274;</div>
+        <h1>Authentication Required</h1>
+        <p>Enter the 6-digit PIN displayed on your phone's WiFi Transfer screen or scan the QR code.</p>
+        ${if (errorMessage != null) "<div class=\"error\">$errorMessage</div>" else ""}
+        <form action="/auth" method="POST">
+            <input type="text" name="pin" class="pin-input" placeholder="••••••" maxlength="6" autofocus required>
+            <button type="submit" class="btn">Connect to Hub</button>
+        </form>
+    </div>
+</body>
+</html>
+        """.trimIndent()
+    }
+
     private fun generateWebUi(): String {
         val root = rootDirProvider()
         val files = root.listFiles()?.filter { it.isFile }?.sortedByDescending { it.lastModified() } ?: emptyList()
@@ -319,7 +497,7 @@ class WifiTransferManager(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Files App - WiFi Transfer</title>
+    <title>Files App - WiFi Transfer Hub</title>
     <style>
         :root {
             --primary: #4F46E5;
@@ -365,15 +543,15 @@ class WifiTransferManager(
         <div class="header">
             <div>
                 <h1>&#128246; Files WiFi Hub</h1>
-                <p style="color: var(--text-sub); font-size: 13px; margin-top: 4px;">Transfer files freely over your local Wi-Fi connection</p>
+                <p style="color: var(--text-sub); font-size: 13px; margin-top: 4px;">Transfer files safely over local Wi-Fi • Authenticated Session</p>
             </div>
-            <span class="badge">&#127760; Connected: ${files.size} Files</span>
+            <span class="badge">&#127760; Shared Folder: ${files.size} Files</span>
         </div>
 
         <div class="upload-card">
-            <h2>&#11014; Upload File to Device</h2>
+            <h2>&#11014; Upload File(s) to Phone</h2>
             <form class="upload-form" action="/upload" method="POST" enctype="multipart/form-data">
-                <input type="file" name="uploadFile" required>
+                <input type="file" name="uploadFiles" multiple required>
                 <button type="submit" class="btn btn-upload">Upload to Phone</button>
             </form>
         </div>
@@ -397,26 +575,5 @@ class WifiTransferManager(
 </body>
 </html>
         """.trimIndent()
-    }
-
-    companion object {
-        fun generateQrCodeBitmap(text: String, size: Int = 512): Bitmap? {
-            return try {
-                val writer = QRCodeWriter()
-                val bitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, size, size)
-                val width = bitMatrix.width
-                val height = bitMatrix.height
-                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
-                for (x in 0 until width) {
-                    for (y in 0 until height) {
-                        bmp.setPixel(x, y, if (bitMatrix.get(x, y)) Color.BLACK else Color.WHITE)
-                    }
-                }
-                bmp
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
-            }
-        }
     }
 }

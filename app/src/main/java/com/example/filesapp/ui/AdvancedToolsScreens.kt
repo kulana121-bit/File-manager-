@@ -702,6 +702,11 @@ fun AppManagerDialog(
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("All") } // "All", "User", "System"
     var selectedAppForDetails by remember { mutableStateOf<InstalledAppDetails?>(null) }
+    var showPermissionsDialog by remember { mutableStateOf<InstalledAppDetails?>(null) }
+
+    // Multi-select for batch APK backup
+    var isBatchMode by remember { mutableStateOf(false) }
+    val selectedBatchApps = remember { mutableStateListOf<InstalledAppDetails>() }
 
     // Launcher for system app uninstallation
     val uninstallLauncher = rememberLauncherForActivityResult(
@@ -731,6 +736,38 @@ fun AppManagerDialog(
                 Toast.makeText(context, "Cannot launch uninstaller: ${ex.message}", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    val launchApp: (InstalledAppDetails) -> Unit = { app ->
+        try {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+            if (launchIntent != null) {
+                context.startActivity(launchIntent)
+            } else {
+                Toast.makeText(context, "Cannot launch '${app.name}' directly", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error launching app: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val openAppInfoSettings: (InstalledAppDetails) -> Unit = { app ->
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${app.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Cannot open app settings: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun copyToClipboard(label: String, value: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText(label, value)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Copied $label to clipboard", Toast.LENGTH_SHORT).show()
     }
 
     LaunchedEffect(Unit) {
@@ -808,15 +845,36 @@ fun AppManagerDialog(
                                 }
                             }
 
-                            IconButton(
-                                onClick = { viewModel.loadInstalledApps() },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(cardSubtle)
-                                    .bounceClick()
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Reload", tint = appBlue, modifier = Modifier.size(20.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                IconButton(
+                                    onClick = {
+                                        isBatchMode = !isBatchMode
+                                        if (!isBatchMode) selectedBatchApps.clear()
+                                    },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isBatchMode) appBlue else cardSubtle)
+                                        .bounceClick()
+                                ) {
+                                    Icon(
+                                        Icons.Default.Checklist,
+                                        contentDescription = "Batch Selection",
+                                        tint = if (isBatchMode) Color.White else textPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { viewModel.loadInstalledApps() },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(cardSubtle)
+                                        .bounceClick()
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = "Reload", tint = appBlue, modifier = Modifier.size(20.dp))
+                                }
                             }
                         }
 
@@ -866,6 +924,62 @@ fun AppManagerDialog(
                         }
                     }
                 }
+            },
+            bottomBar = {
+                if (isBatchMode && selectedBatchApps.isNotEmpty()) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = cardColor,
+                        shadowElevation = 8.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "${selectedBatchApps.size} apps selected",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textPrimary
+                                )
+                                val totalBytes = selectedBatchApps.sumOf { it.sizeBytes }
+                                Text(
+                                    text = "Total ${formatFileSize(totalBytes)}",
+                                    fontSize = 12.sp,
+                                    color = textMuted
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    viewModel.batchBackupAppDetailsApks(selectedBatchApps.toList()) { ok, failed ->
+                                        Toast.makeText(
+                                            context,
+                                            "Backed up $ok APK(s) to Downloads" + if (failed > 0) " ($failed failed)" else "",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        selectedBatchApps.clear()
+                                        isBatchMode = false
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                                shape = CircleShape,
+                                modifier = Modifier.bounceClick()
+                            ) {
+                                Icon(Icons.Default.SaveAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Backup Selected", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
             }
         ) { paddingValues ->
             Box(
@@ -895,11 +1009,22 @@ fun AppManagerDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(filteredApps) { app ->
+                            val isSelected = selectedBatchApps.any { it.packageName == app.packageName }
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .bounceClick()
-                                    .clickable { selectedAppForDetails = app },
+                                    .clickable {
+                                        if (isBatchMode) {
+                                            if (isSelected) {
+                                                selectedBatchApps.removeAll { it.packageName == app.packageName }
+                                            } else {
+                                                selectedBatchApps.add(app)
+                                            }
+                                        } else {
+                                            selectedAppForDetails = app
+                                        }
+                                    },
                                 shape = RoundedCornerShape(22.dp),
                                 colors = CardDefaults.cardColors(containerColor = cardColor),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -916,6 +1041,20 @@ fun AppManagerDialog(
                                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
+                                        if (isBatchMode) {
+                                            Checkbox(
+                                                checked = isSelected,
+                                                onCheckedChange = { checked ->
+                                                    if (checked) {
+                                                        if (!isSelected) selectedBatchApps.add(app)
+                                                    } else {
+                                                        selectedBatchApps.removeAll { it.packageName == app.packageName }
+                                                    }
+                                                },
+                                                colors = CheckboxDefaults.colors(checkedColor = appBlue)
+                                            )
+                                        }
+
                                         // App Icon
                                         val pm = context.packageManager
                                         val iconBitmap = remember(app.packageName) {
@@ -961,9 +1100,14 @@ fun AppManagerDialog(
                                                         Text("SYS", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = textMuted, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                                     }
                                                 }
+                                                if (app.isSplitApk) {
+                                                    Surface(shape = CircleShape, color = appBlue.copy(alpha = 0.15f)) {
+                                                        Text("SPLIT (${app.splitApkCount})", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = appBlue, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                                    }
+                                                }
                                             }
                                             Text(
-                                                text = "${app.packageName} • v${app.versionName}",
+                                                text = "${app.packageName} • v${app.versionName} • SDK ${app.targetSdkVersion}",
                                                 fontSize = 11.sp,
                                                 color = textMuted,
                                                 maxLines = 1,
@@ -978,32 +1122,34 @@ fun AppManagerDialog(
                                         }
                                     }
 
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = {
-                                                viewModel.backupAppDetailsApk(app) { success, msg ->
-                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            modifier = Modifier.size(36.dp).clip(CircleShape).background(cardSubtle).bounceClick()
-                                        ) {
-                                            Icon(Icons.Default.SaveAlt, contentDescription = "Backup APK", tint = appBlue, modifier = Modifier.size(18.dp))
-                                        }
-
-                                        if (!app.isSystemApp) {
+                                    if (!isBatchMode) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                             IconButton(
-                                                onClick = { requestUninstallApp(app) },
-                                                modifier = Modifier.size(36.dp).clip(CircleShape).background(appRed.copy(alpha = 0.1f)).bounceClick()
+                                                onClick = {
+                                                    viewModel.backupAppDetailsApk(app) { success, msg ->
+                                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier.size(36.dp).clip(CircleShape).background(cardSubtle).bounceClick()
                                             ) {
-                                                Icon(Icons.Outlined.Delete, contentDescription = "Uninstall", tint = appRed, modifier = Modifier.size(18.dp))
+                                                Icon(Icons.Default.SaveAlt, contentDescription = "Backup APK", tint = appBlue, modifier = Modifier.size(18.dp))
                                             }
-                                        }
 
-                                        IconButton(
-                                            onClick = { selectedAppForDetails = app },
-                                            modifier = Modifier.size(36.dp).clip(CircleShape).bounceClick()
-                                        ) {
-                                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textMuted, modifier = Modifier.size(20.dp))
+                                            if (!app.isSystemApp) {
+                                                IconButton(
+                                                    onClick = { requestUninstallApp(app) },
+                                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(appRed.copy(alpha = 0.1f)).bounceClick()
+                                                ) {
+                                                    Icon(Icons.Outlined.Delete, contentDescription = "Uninstall", tint = appRed, modifier = Modifier.size(18.dp))
+                                                }
+                                            }
+
+                                            IconButton(
+                                                onClick = { selectedAppForDetails = app },
+                                                modifier = Modifier.size(36.dp).clip(CircleShape).bounceClick()
+                                            ) {
+                                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textMuted, modifier = Modifier.size(20.dp))
+                                            }
                                         }
                                     }
                                 }
@@ -1044,37 +1190,120 @@ fun AppManagerDialog(
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Version: ${app.versionName} (${app.versionCode})", fontSize = 12.sp, color = textPrimary)
-                    Text("APK Size: ${formatFileSize(app.sizeBytes)}", fontSize = 12.sp, color = textPrimary)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Version: ${app.versionName} (Build ${app.versionCode})", fontSize = 12.sp, color = textPrimary)
+                    Text("Target SDK: Android API ${app.targetSdkVersion}" + if (app.minSdkVersion > 0) " (Min API ${app.minSdkVersion})" else "", fontSize = 12.sp, color = textPrimary)
+                    Text("APK Size: ${formatFileSize(app.sizeBytes)}" + if (app.isSplitApk) " (${app.splitApkCount} split parts)" else " (Single base APK)", fontSize = 12.sp, color = textPrimary)
                     Text("Source Path: ${app.apkPath}", fontSize = 11.sp, color = textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+
                     if (app.firstInstallTime > 0) {
                         val installDate = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(Date(app.firstInstallTime))
                         Text("Installed: $installDate", fontSize = 11.sp, color = textMuted)
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    // Certificate SHA-256 Card
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = cardSubtle),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Certificate SHA-256", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = appBlue)
+                                IconButton(
+                                    onClick = { copyToClipboard("Certificate SHA-256", app.certificateSha256) },
+                                    modifier = Modifier.size(24.dp).clip(CircleShape).bounceClick()
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy Certificate", tint = appBlue, modifier = Modifier.size(14.dp))
+                                }
+                            }
+                            Text(
+                                text = app.certificateSha256,
+                                fontSize = 10.sp,
+                                color = textPrimary,
+                                lineHeight = 14.sp
+                            )
+                        }
+                    }
 
-                    // Action buttons
+                    // Permissions button
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = cardSubtle,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showPermissionsDialog = app }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Outlined.Security, contentDescription = null, tint = appBlue, modifier = Modifier.size(18.dp))
+                                Text("Declared Permissions (${app.permissions.size})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Row 1: Launch App & App Info Settings
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Backup APK
+                        Button(
+                            onClick = { launchApp(app) },
+                            colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                            shape = CircleShape,
+                            modifier = Modifier.weight(1f).bounceClick()
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Launch", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { openAppInfoSettings(app) },
+                            colors = ButtonDefaults.buttonColors(containerColor = cardSubtle),
+                            shape = CircleShape,
+                            modifier = Modifier.weight(1f).bounceClick()
+                        ) {
+                            Icon(Icons.Outlined.Settings, contentDescription = null, tint = textPrimary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("App Info", fontSize = 11.sp, color = textPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // Row 2: Backup APK & Share APK
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Button(
                             onClick = {
                                 viewModel.backupAppDetailsApk(app) { success, msg ->
                                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = cardSubtle),
                             shape = CircleShape,
                             modifier = Modifier.weight(1f).bounceClick()
                         ) {
-                            Text("Backup APK", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Backup APK", fontSize = 11.sp, color = textPrimary, fontWeight = FontWeight.Bold)
                         }
 
-                        // Share APK
                         Button(
                             onClick = {
                                 try {
@@ -1105,9 +1334,7 @@ fun AppManagerDialog(
                     // Uninstall Button (If not system app)
                     if (!app.isSystemApp) {
                         Button(
-                            onClick = {
-                                requestUninstallApp(app)
-                            },
+                            onClick = { requestUninstallApp(app) },
                             colors = ButtonDefaults.buttonColors(containerColor = appRed.copy(alpha = 0.12f)),
                             shape = CircleShape,
                             modifier = Modifier.fillMaxWidth().bounceClick()
@@ -1122,6 +1349,50 @@ fun AppManagerDialog(
             confirmButton = {
                 TextButton(onClick = { selectedAppForDetails = null }) {
                     Text("Close", color = textMuted, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
+    // Permissions List Modal
+    showPermissionsDialog?.let { app ->
+        AlertDialog(
+            onDismissRequest = { showPermissionsDialog = null },
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text("${app.name} Permissions", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textPrimary)
+            },
+            text = {
+                if (app.permissions.isEmpty()) {
+                    Text("No permissions declared by this application", color = textMuted, fontSize = 12.sp)
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(app.permissions) { perm ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = cardSubtle,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = perm.substringAfterLast('.'),
+                                    fontSize = 11.sp,
+                                    color = textPrimary,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPermissionsDialog = null }) {
+                    Text("Done", color = appBlue, fontWeight = FontWeight.Bold)
                 }
             }
         )

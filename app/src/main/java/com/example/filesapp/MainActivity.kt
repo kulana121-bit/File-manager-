@@ -49,6 +49,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Auto-wipe decrypted Private Vault preview cache on backgrounding
+        viewModel.wipeVaultPreviewCache()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        viewModel.wipeVaultPreviewCache()
+    }
+
     private fun checkAndRequestPermissions() {
         val permissions = mutableListOf<String>()
         

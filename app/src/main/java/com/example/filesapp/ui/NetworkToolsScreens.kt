@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.filesapp.data.*
+import com.example.filesapp.domain.backup.*
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -213,44 +214,76 @@ fun WifiTransferDialog(
                                         }
                                     }
 
-                                    // URL Card with Copy Button
+                                    // PIN & URL Card with Copy Button
                                     Surface(
-                                        shape = RoundedCornerShape(16.dp),
+                                        shape = RoundedCornerShape(18.dp),
                                         color = if (isDark) Color(0xFF0F172A) else Color(0xFFF1F5F9),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text("Open URL in any web browser:", fontSize = 11.sp, color = textMuted)
-                                                Text(
-                                                    uiState.wifiServerUrl,
-                                                    fontSize = 16.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = appBlue
-                                                )
+                                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column {
+                                                    Text("Session Access PIN:", fontSize = 11.sp, color = textMuted)
+                                                    Text(
+                                                        viewModel.wifiManager.sessionAuthToken.ifEmpty { "AUTHENTICATED" },
+                                                        fontSize = 22.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        letterSpacing = 3.sp,
+                                                        color = appGreen
+                                                    )
+                                                }
+
+                                                IconButton(
+                                                    onClick = {
+                                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                        clipboard.setPrimaryClip(ClipData.newPlainText("PIN", viewModel.wifiManager.sessionAuthToken))
+                                                        Toast.makeText(context, "PIN copied to clipboard", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(cardBg)
+                                                ) {
+                                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy PIN", tint = appBlue, modifier = Modifier.size(18.dp))
+                                                }
                                             }
 
-                                            IconButton(
-                                                onClick = {
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    clipboard.setPrimaryClip(ClipData.newPlainText("URL", uiState.wifiServerUrl))
-                                                    Toast.makeText(context, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
-                                                },
-                                                modifier = Modifier.size(36.dp).clip(CircleShape).background(cardBg)
+                                            HorizontalDivider(color = borderCol)
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL", tint = appBlue, modifier = Modifier.size(18.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text("Open URL in browser:", fontSize = 11.sp, color = textMuted)
+                                                    Text(
+                                                        uiState.wifiServerUrl,
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = appBlue,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+
+                                                IconButton(
+                                                    onClick = {
+                                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                        clipboard.setPrimaryClip(ClipData.newPlainText("URL", uiState.wifiServerUrl))
+                                                        Toast.makeText(context, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(cardBg)
+                                                ) {
+                                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL", tint = appBlue, modifier = Modifier.size(18.dp))
+                                                }
                                             }
                                         }
                                     }
 
                                     Text(
-                                        "Ensure both devices are connected to the same Wi-Fi network. Scan the QR code or enter the URL above.",
+                                        "Scan the QR code to connect automatically, or enter the URL and 6-digit PIN on any PC/device in your local network.",
                                         fontSize = 12.sp,
                                         color = textMuted,
                                         textAlign = TextAlign.Center,
@@ -348,6 +381,9 @@ fun ImageToolsDialog(
 
     var qualitySlider by remember { mutableFloatStateOf(80f) }
     var selectedResizeMode by remember { mutableStateOf(ResizeMode.KEEP_ORIGINAL) }
+    var selectedRotation by remember { mutableIntStateOf(0) }
+    var preserveExif by remember { mutableStateOf(false) }
+    var overwriteOriginal by remember { mutableStateOf(false) }
     var customWidthInput by remember { mutableStateOf("") }
     var customHeightInput by remember { mutableStateOf("") }
 
@@ -503,6 +539,62 @@ fun ImageToolsDialog(
                     }
                 }
 
+                // 4. Rotate
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("4. Rotation", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(0 to "0°", 90 to "90°", 180 to "180°", 270 to "270°").forEach { (deg, label) ->
+                            val isSelected = selectedRotation == deg
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isSelected) appBlue else (if (isDark) Color(0xFF334155) else Color(0xFFF1F5F9)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedRotation = deg }
+                            ) {
+                                Text(
+                                    text = label,
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) Color.White else textPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 5. Options: EXIF & Overwrite
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("5. Options", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Preserve EXIF Metadata", fontSize = 12.sp, color = textPrimary)
+                        Switch(
+                            checked = preserveExif,
+                            onCheckedChange = { preserveExif = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = appBlue)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Overwrite Original File", fontSize = 12.sp, color = textPrimary)
+                        Switch(
+                            checked = overwriteOriginal,
+                            onCheckedChange = { overwriteOriginal = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = appBlue)
+                        )
+                    }
+                }
+
                 // Success Result Preview Card
                 resultSummary?.let { res ->
                     Surface(
@@ -531,7 +623,10 @@ fun ImageToolsDialog(
                         targetWidth = customWidthInput.toIntOrNull() ?: 0,
                         targetHeight = customHeightInput.toIntOrNull() ?: 0,
                         targetFormat = selectedFormat,
-                        quality = qualitySlider.toInt()
+                        quality = qualitySlider.toInt(),
+                        rotationDegrees = selectedRotation,
+                        preserveExif = preserveExif,
+                        overwriteOriginal = overwriteOriginal
                     )
                     viewModel.processImage(File(file.path), options) { success, result, msg ->
                         isProcessing = false
@@ -550,7 +645,7 @@ fun ImageToolsDialog(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Processing...")
                 } else {
-                    Text("Save As New Image", color = Color.White)
+                    Text(if (overwriteOriginal) "Save & Overwrite" else "Save As New Image", color = Color.White)
                 }
             }
         },
@@ -1063,6 +1158,391 @@ fun NetworkStorageDialog(
             },
             dismissButton = {
                 TextButton(onClick = { showAddServerDialog = false }) {
+                    Text("Cancel", color = textMuted)
+                }
+            }
+        )
+    }
+}
+
+// ==========================================
+// 4. BACKUP & RESTORE ENGINE DIALOG
+// ==========================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BackupEngineDialog(
+    viewModel: FileManagerViewModel,
+    onDismiss: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val isDark = uiState.isDarkMode
+
+    val cardBg = if (isDark) Color(0xFF24211D).copy(alpha = 0.90f) else Color.White.copy(alpha = 0.92f)
+    val screenBg = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+    val textPrimary = if (isDark) Color(0xFFF5EFEB) else Color(0xFF2C2825)
+    val textMuted = if (isDark) Color(0xFFA89F96) else Color(0xFF8C827A)
+    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55)
+    val appGreen = if (isDark) Color(0xFF86A873) else Color(0xFF5E8B49)
+    val appRed = if (isDark) Color(0xFFD47366) else Color(0xFFB85347)
+    val borderCol = if (isDark) Color(0xFF38332D) else Color(0xFFEADBCE)
+
+    var jobNameInput by remember { mutableStateOf("My Backup") }
+    var selectedDestType by remember { mutableStateOf(BackupDestinationType.LOCAL_STORAGE) }
+    var wifiOnlyToggle by remember { mutableStateOf(true) }
+    var incrementalToggle by remember { mutableStateOf(true) }
+    var showRestoreConfirmDialog by remember { mutableStateOf<BackupHistoryRecord?>(null) }
+
+    val defaultSourceFolders = remember {
+        listOf(
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS).absolutePath,
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS).absolutePath,
+            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES).absolutePath
+        ).filter { File(it).exists() }
+    }
+    val selectedFolders = remember { mutableStateListOf<String>().apply { addAll(defaultSourceFolders) } }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadBackupHistory()
+    }
+
+    val progress = uiState.backupProgress
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = screenBg
+        ) {
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = cardBg,
+                        shadowElevation = 2.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                IconButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isDark) Color(0xFF2E2A25) else Color(0xFFEFE8DD))
+                                        .bounceClick()
+                                ) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = textPrimary, modifier = Modifier.size(20.dp))
+                                }
+                                Column {
+                                    Text("Backup & Restore", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = textPrimary)
+                                    Text("Incremental snapshots & cloud sync", fontSize = 12.sp, color = textMuted)
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.loadBackupHistory() },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isDark) Color(0xFF2E2A25) else Color(0xFFEFE8DD))
+                                    .bounceClick()
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = appBlue, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                }
+            ) { padding ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    // Active Progress Card
+                    if (progress.isRunning) {
+                        item {
+                            Card(
+                                shape = RoundedCornerShape(24.dp),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = BorderStroke(1.dp, appBlue.copy(alpha = 0.5f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = appBlue)
+                                            Text("Backup in Progress...", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = textPrimary)
+                                        }
+                                        Text("${(progress.progressPercent * 100).toInt()}%", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = appBlue)
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { progress.progressPercent.coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                                        color = appBlue
+                                    )
+                                    Text(progress.statusMessage, fontSize = 12.sp, color = textMuted)
+                                }
+                            }
+                        }
+                    }
+
+                    // Create New Backup Card
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = cardBg),
+                            border = BorderStroke(1.dp, borderCol.copy(alpha = 0.6f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Create Backup Snapshot", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textPrimary)
+
+                                OutlinedTextField(
+                                    value = jobNameInput,
+                                    onValueChange = { jobNameInput = it },
+                                    label = { Text("Backup Job Name") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Text("Destination Provider", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = textMuted)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf(
+                                        Triple(BackupDestinationType.LOCAL_STORAGE, "Local", Icons.Default.Storage),
+                                        Triple(BackupDestinationType.GOOGLE_DRIVE, "Drive", Icons.Default.Cloud),
+                                        Triple(BackupDestinationType.NETWORK_FTP, "FTP", Icons.Default.Dns)
+                                    ).forEach { (type, label, icon) ->
+                                        val isSelected = selectedDestType == type
+                                        Surface(
+                                            onClick = { selectedDestType = type },
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = if (isSelected) appBlue else (if (isDark) Color(0xFF2E2A25) else Color(0xFFEFE8DD)),
+                                            modifier = Modifier.weight(1f).bounceClick()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(vertical = 10.dp),
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(icon, contentDescription = null, tint = if (isSelected) Color.White else textPrimary, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(label, color = if (isSelected) Color.White else textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Wi-Fi Only & Incremental Toggles
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Wi-Fi Only", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
+                                        Text("Prevent cellular data consumption", fontSize = 11.sp, color = textMuted)
+                                    }
+                                    Switch(
+                                        checked = wifiOnlyToggle,
+                                        onCheckedChange = { wifiOnlyToggle = it },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = appBlue)
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Incremental Backup", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
+                                        Text("Only backup new or modified files", fontSize = 11.sp, color = textMuted)
+                                    }
+                                    Switch(
+                                        checked = incrementalToggle,
+                                        onCheckedChange = { incrementalToggle = it },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = appBlue)
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        if (jobNameInput.isNotBlank()) {
+                                            val config = BackupJobConfig(
+                                                name = jobNameInput.trim(),
+                                                sourceFolderPaths = selectedFolders.toList(),
+                                                destinationType = selectedDestType,
+                                                isWifiOnly = wifiOnlyToggle,
+                                                isIncremental = incrementalToggle
+                                            )
+                                            viewModel.executeBackupJob(config) { success, msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            }
+                                        } else {
+                                            Toast.makeText(context, "Please enter a backup name", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    enabled = !progress.isRunning,
+                                    colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                                    shape = CircleShape,
+                                    modifier = Modifier.fillMaxWidth().height(48.dp).bounceClick()
+                                ) {
+                                    Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Run Backup Now", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    // History Section Header
+                    item {
+                        Text(
+                            text = "BACKUP HISTORY (${uiState.backupHistory.size})",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textMuted,
+                            letterSpacing = 1.2.sp
+                        )
+                    }
+
+                    if (uiState.backupHistory.isEmpty()) {
+                        item {
+                            Card(
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                    Text("No previous backup records found", fontSize = 13.sp, color = textMuted)
+                                }
+                            }
+                        }
+                    } else {
+                        items(uiState.backupHistory) { record ->
+                            Card(
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                border = BorderStroke(1.dp, borderCol.copy(alpha = 0.5f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(if (record.isSuccess) appGreen.copy(alpha = 0.15f) else appRed.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (record.isSuccess) Icons.Default.CheckCircle else Icons.Default.Error,
+                                                    contentDescription = null,
+                                                    tint = if (record.isSuccess) appGreen else appRed,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text(record.jobName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = textPrimary)
+                                                val dateStr = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(Date(record.timestamp))
+                                                Text(dateStr, fontSize = 11.sp, color = textMuted)
+                                            }
+                                        }
+
+                                        if (record.isSuccess && record.backupArchivePathOrLocation != null && record.backupArchivePathOrLocation.startsWith("/")) {
+                                            Surface(
+                                                onClick = { showRestoreConfirmDialog = record },
+                                                shape = CircleShape,
+                                                color = appBlue.copy(alpha = 0.12f),
+                                                modifier = Modifier.bounceClick()
+                                            ) {
+                                                Text("Restore", fontSize = 11.sp, color = appBlue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                                            }
+                                        }
+                                    }
+
+                                    Text(
+                                        text = "${record.totalFilesBackedUp} files • ${formatFileSize(record.totalBytesBackedUp)} • ${record.destinationDescription}",
+                                        fontSize = 11.sp,
+                                        color = textMuted
+                                    )
+
+                                    if (!record.isSuccess && record.errorMessage != null) {
+                                        Text(
+                                            text = "Error: ${record.errorMessage}",
+                                            fontSize = 11.sp,
+                                            color = appRed,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Restore Confirmation Dialog
+    showRestoreConfirmDialog?.let { record ->
+        val archivePath = record.backupArchivePathOrLocation ?: ""
+        val archiveFile = File(archivePath)
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirmDialog = null },
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("Restore Backup Snapshot?", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Extract and restore '${record.jobName}' (${formatFileSize(record.totalBytesBackedUp)}) into internal storage?", fontSize = 13.sp, color = textPrimary)
+                    Text("Archive: ${archiveFile.name}", fontSize = 11.sp, color = textMuted)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val targetDir = android.os.Environment.getExternalStorageDirectory()
+                        showRestoreConfirmDialog = null
+                        viewModel.restoreBackupArchive(archiveFile, targetDir) { success, msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                    shape = CircleShape
+                ) {
+                    Text("Restore Now", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirmDialog = null }) {
                     Text("Cancel", color = textMuted)
                 }
             }

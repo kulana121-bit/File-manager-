@@ -2,7 +2,9 @@ package com.example.filesapp.data
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -47,7 +49,14 @@ data class InstalledAppDetails(
     val apkPath: String,
     val isSystemApp: Boolean,
     val firstInstallTime: Long,
-    val lastUpdateTime: Long
+    val lastUpdateTime: Long,
+    val targetSdkVersion: Int = 0,
+    val minSdkVersion: Int = 0,
+    val permissions: List<String> = emptyList(),
+    val certificateSha256: String = "",
+    val isSplitApk: Boolean = false,
+    val splitApkCount: Int = 0,
+    val splitPaths: List<String> = emptyList()
 )
 
 object AdvancedToolsManager {
@@ -195,28 +204,49 @@ object AdvancedToolsManager {
     }.flowOn(Dispatchers.IO)
 
     /**
-     * Lists all installed apps on the device with icons, version, package name, and APK path.
+     * Lists all installed apps on the device with icons, version, package name,
+     * permissions, certificate SHA-256, target SDK, and split APK information.
      */
     suspend fun getInstalledApps(context: Context): List<InstalledAppDetails> = withContext(Dispatchers.IO) {
         val pm = context.packageManager
-        val packages = pm.getInstalledPackages(PackageManager.GET_META_DATA)
+        val flags = PackageManager.GET_META_DATA or PackageManager.GET_PERMISSIONS or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES
+
+        val packages = pm.getInstalledPackages(flags)
         val appList = mutableListOf<InstalledAppDetails>()
 
         for (pkg in packages) {
             val appInfo = pkg.applicationInfo ?: continue
             val appName = pm.getApplicationLabel(appInfo).toString()
             val apkPath = appInfo.sourceDir ?: ""
-            val apkFile = File(apkPath)
-            val sizeBytes = if (apkFile.exists()) apkFile.length() else 0L
+            val baseFile = File(apkPath)
+
+            // Split APK detection & total size calculation
+            val splitDirs = appInfo.splitSourceDirs ?: emptyArray()
+            val isSplit = splitDirs.isNotEmpty()
+            val splitPathsList = splitDirs.toList()
+            var totalSize = if (baseFile.exists()) baseFile.length() else 0L
+            for (split in splitDirs) {
+                val sf = File(split)
+                if (sf.exists()) totalSize += sf.length()
+            }
 
             val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
 
-            val vCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            val vCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 pkg.longVersionCode
             } else {
                 @Suppress("DEPRECATION")
                 pkg.versionCode.toLong()
             }
+
+            val targetSdk = appInfo.targetSdkVersion
+            val minSdk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) appInfo.minSdkVersion else 0
+
+            val permissionsList = pkg.requestedPermissions?.toList() ?: emptyList()
+
+            // Certificate SHA-256 fingerprint extraction
+            val certSha256 = getCertificateSha256(pkg)
 
             appList.add(
                 InstalledAppDetails(
@@ -224,16 +254,57 @@ object AdvancedToolsManager {
                     packageName = pkg.packageName,
                     versionName = pkg.versionName ?: "1.0",
                     versionCode = vCode,
-                    sizeBytes = sizeBytes,
+                    sizeBytes = totalSize,
                     apkPath = apkPath,
                     isSystemApp = isSystem,
                     firstInstallTime = pkg.firstInstallTime,
-                    lastUpdateTime = pkg.lastUpdateTime
+                    lastUpdateTime = pkg.lastUpdateTime,
+                    targetSdkVersion = targetSdk,
+                    minSdkVersion = minSdk,
+                    permissions = permissionsList,
+                    certificateSha256 = certSha256,
+                    isSplitApk = isSplit,
+                    splitApkCount = splitDirs.size,
+                    splitPaths = splitPathsList
                 )
             )
         }
 
         // Sort: user apps first, then alphabetically
         appList.sortedWith(compareBy({ it.isSystemApp }, { it.name.lowercase() }))
+    }
+
+    private fun getCertificateSha256(packageInfo: PackageInfo): String {
+        return try {
+            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val signingInfo = packageInfo.signingInfo
+                if (signingInfo != null) {
+                    if (signingInfo.hasMultipleSigners()) {
+                        signingInfo.apkContentsSigners
+                    } else {
+                        signingInfo.signingCertificateHistory
+                    }
+                } else null
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.signatures
+            }
+
+            if (!signatures.isNullOrEmpty()) {
+                val certBytes = signatures[0].toByteArray()
+                val md = MessageDigest.getInstance("SHA-256")
+                val digest = md.digest(certBytes)
+                val sb = StringBuilder()
+                for (i in digest.indices) {
+                    if (i > 0) sb.append(":")
+                    sb.append(String.format("%02X", digest[i]))
+                }
+                sb.toString()
+            } else {
+                "Not available"
+            }
+        } catch (e: Exception) {
+            "Not available"
+        }
     }
 }

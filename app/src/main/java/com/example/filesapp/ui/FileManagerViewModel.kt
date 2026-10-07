@@ -8,6 +8,12 @@ import android.os.FileObserver
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.filesapp.data.*
+import com.example.filesapp.domain.analyzer.*
+import com.example.filesapp.domain.archive.*
+import com.example.filesapp.domain.backup.*
+import com.example.filesapp.domain.operations.*
+import com.example.filesapp.domain.search.*
+import com.example.filesapp.domain.storage.*
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,7 +67,23 @@ data class FileManagerUiState(
     val isConnectingRemote: Boolean = false,
     val remoteStatusMessage: String? = null,
     val isProcessingImage: Boolean = false,
-    val imageProcessProgress: Float = 0f
+    val imageProcessProgress: Float = 0f,
+    // File Operations Transfer State
+    val activeTransfer: TransferProgress? = null,
+    val activeConflict: FileConflict? = null,
+    // Phase 2 Search & Storage Analyzer State
+    val searchCategory: SearchCategoryFilter = SearchCategoryFilter.ALL,
+    val searchResults: List<AndroidFileModel> = emptyList(),
+    val largestFiles: List<AndroidFileModel> = emptyList(),
+    val emptyFolders: List<EmptyFolderItem> = emptyList(),
+    // Phase 3 Trash & Google Drive & Network state
+    val autoCleanTrashDays: Int = 30,
+    val currentDriveFolderId: String = "root",
+    val driveBreadcrumbs: List<Pair<String, String>> = listOf("root" to "Google Drive"),
+    val driveSearchQuery: String = "",
+    // Backup Engine State
+    val backupProgress: BackupExecutionProgress = BackupExecutionProgress(),
+    val backupHistory: List<BackupHistoryRecord> = emptyList()
 )
 
 class FileManagerViewModel(application: Application) : AndroidViewModel(application) {
@@ -70,6 +92,12 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private val repository = StorageRepository(application)
     private val vaultManager = PrivateVaultManager(application)
     val driveManager = GoogleDriveManager(application)
+    val storageRegistry = StorageProviderRegistry(application)
+    val fileOpsEngine = FileOperationsEngine(application, storageRegistry)
+    val searchEngine = SearchEngine()
+    val storageAnalyzerEngine = StorageAnalyzerEngine(application)
+    val archiveEngine = ArchiveEngine
+    val networkStorageManager = NetworkStorageManager(application)
     val wifiManager = WifiTransferManager(
         context = application,
         rootDirProvider = { Environment.getExternalStorageDirectory() },
@@ -79,7 +107,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     )
     val imageToolsManager = ImageToolsManager(application)
-    val networkStorageManager = NetworkStorageManager(application)
+    val backupEngine = BackupEngine(application, driveManager, networkStorageManager)
+    private var activeTransferController: TransferOperationController? = null
 
     private var signedInAccount: GoogleSignInAccount? = null
     private var directoryObserver: FileObserver? = null
@@ -106,6 +135,12 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             File(application.cacheDir, "vault_previews").deleteRecursively()
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+
+        viewModelScope.launch {
+            fileOpsEngine.currentProgress.collect { progress ->
+                _uiState.value = _uiState.value.copy(activeTransfer = progress)
+            }
         }
     }
 
@@ -134,18 +169,31 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun loadStorageBreakdown() {
         viewModelScope.launch {
-            val breakdown = repository.computeStorageBreakdown()
-            _uiState.value = _uiState.value.copy(storageBreakdown = breakdown)
+            val report = storageAnalyzerEngine.analyzeStorage(showHidden = _uiState.value.showHiddenFiles)
+            _uiState.value = _uiState.value.copy(
+                storageBreakdown = report.breakdown,
+                largestFiles = report.largestFiles,
+                emptyFolders = report.emptyFolders
+            )
+            searchEngine.updateIndex(report.allIndexedFiles)
         }
     }
 
     fun isVaultPinSet(): Boolean = vaultManager.isPinSet()
+
+    fun getVaultManager(): PrivateVaultManager = vaultManager
 
     fun saveVaultPin(pin: String) {
         vaultManager.savePin(pin)
     }
 
     fun verifyVaultPin(pin: String): Boolean = vaultManager.verifyPin(pin)
+
+    fun wipeVaultPreviewCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            vaultManager.wipeAllTempPreviews()
+        }
+    }
 
     fun loadVaultFiles() {
         viewModelScope.launch {
@@ -302,110 +350,308 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun moveFileInPlace(file: File, targetDir: File, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            val moved = repository.moveFileInPlace(file, targetDir)
-            if (moved != null) {
-                loadDirectory(File(_uiState.value.currentPath))
-                onResult(true, "Moved to ${targetDir.name}")
-            } else {
-                onResult(false, "Move failed")
-            }
-        }
+    fun cancelCurrentTransfer() {
+        activeTransferController?.cancel()
     }
 
-    fun copyFileInPlace(file: File, targetDir: File, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            val copied = repository.copyFileInPlace(file, targetDir)
-            if (copied != null) {
+    fun moveFileInPlace(
+        file: File,
+        targetDir: File,
+        strategy: ConflictStrategy = ConflictStrategy.AUTO_RENAME,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        val srcItem = StorageItem.fromFile(file)
+        val targetItem = StorageItem.fromFile(targetDir)
+        activeTransferController = fileOpsEngine.moveItems(
+            coroutineScope = viewModelScope,
+            sources = listOf(srcItem),
+            targetDirectory = targetItem,
+            conflictStrategy = strategy,
+            onComplete = { result ->
+                loadDirectory(targetDir)
                 loadDirectory(File(_uiState.value.currentPath))
-                onResult(true, "Copied to ${targetDir.name}")
-            } else {
-                onResult(false, "Copy failed")
+                loadStorageBreakdown()
+                if (result.success && result.successCount > 0) {
+                    onResult(true, "Moved '${file.name}' to ${targetDir.name}")
+                } else {
+                    onResult(false, result.errorMessage ?: "Move failed")
+                }
             }
-        }
+        )
+    }
+
+    fun copyFileInPlace(
+        file: File,
+        targetDir: File,
+        strategy: ConflictStrategy = ConflictStrategy.AUTO_RENAME,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        val srcItem = StorageItem.fromFile(file)
+        val targetItem = StorageItem.fromFile(targetDir)
+        activeTransferController = fileOpsEngine.copyItems(
+            coroutineScope = viewModelScope,
+            sources = listOf(srcItem),
+            targetDirectory = targetItem,
+            conflictStrategy = strategy,
+            onComplete = { result ->
+                loadDirectory(targetDir)
+                loadDirectory(File(_uiState.value.currentPath))
+                loadStorageBreakdown()
+                if (result.success && result.successCount > 0) {
+                    onResult(true, "Copied '${file.name}' to ${targetDir.name}")
+                } else {
+                    onResult(false, result.errorMessage ?: "Copy failed")
+                }
+            }
+        )
+    }
+
+    fun copyMultipleItems(
+        sources: List<StorageItem>,
+        targetDir: StorageItem,
+        strategy: ConflictStrategy = ConflictStrategy.AUTO_RENAME,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        activeTransferController = fileOpsEngine.copyItems(
+            coroutineScope = viewModelScope,
+            sources = sources,
+            targetDirectory = targetDir,
+            conflictStrategy = strategy,
+            onComplete = { result ->
+                val targetFile = targetDir.toFileOrNull()
+                if (targetFile != null) loadDirectory(targetFile)
+                loadDirectory(File(_uiState.value.currentPath))
+                loadStorageBreakdown()
+                if (result.success) {
+                    onResult(true, "Copied ${result.successCount} item(s)")
+                } else {
+                    onResult(false, result.errorMessage ?: "Failed to copy some items")
+                }
+            }
+        )
+    }
+
+    fun moveMultipleItems(
+        sources: List<StorageItem>,
+        targetDir: StorageItem,
+        strategy: ConflictStrategy = ConflictStrategy.AUTO_RENAME,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        activeTransferController = fileOpsEngine.moveItems(
+            coroutineScope = viewModelScope,
+            sources = sources,
+            targetDirectory = targetDir,
+            conflictStrategy = strategy,
+            onComplete = { result ->
+                val targetFile = targetDir.toFileOrNull()
+                if (targetFile != null) loadDirectory(targetFile)
+                loadDirectory(File(_uiState.value.currentPath))
+                loadStorageBreakdown()
+                if (result.success) {
+                    onResult(true, "Moved ${result.successCount} item(s)")
+                } else {
+                    onResult(false, result.errorMessage ?: "Failed to move some items")
+                }
+            }
+        )
     }
 
     fun onGoogleSignInSuccess(account: GoogleSignInAccount) {
         signedInAccount = account
+        driveManager.currentAccount = account
         _uiState.value = _uiState.value.copy(
             isDriveConnected = true,
-            driveUserEmail = account.email ?: "Google Account"
+            driveUserEmail = account.email ?: "Google Account",
+            currentDriveFolderId = "root",
+            driveBreadcrumbs = listOf("root" to "Google Drive")
         )
-        loadDriveFiles()
+        loadDriveFiles("root")
     }
 
     fun signOutGoogleDrive(onComplete: () -> Unit) {
         driveManager.signOut {
             signedInAccount = null
+            driveManager.currentAccount = null
             _uiState.value = _uiState.value.copy(
                 isDriveConnected = false,
                 driveUserEmail = null,
                 driveFiles = emptyList(),
+                currentDriveFolderId = "root",
+                driveBreadcrumbs = listOf("root" to "Google Drive"),
                 driveStatusMessage = null
             )
             onComplete()
         }
     }
 
-    fun loadDriveFiles() {
-        val account = signedInAccount ?: return
+    fun loadDriveFiles(folderId: String = _uiState.value.currentDriveFolderId) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isScanning = true, driveStatusMessage = null)
-            try {
-                val googleFiles = driveManager.fetchDriveFiles(account)
-                val mappedModels = googleFiles.map { gFile ->
-                    AndroidFileModel(
-                        id = gFile.id ?: "",
-                        name = gFile.name ?: "Untitled",
-                        path = "drive://${gFile.id}",
-                        size = gFile.getSize()?.toLong() ?: 0L,
-                        mimeType = gFile.mimeType ?: "application/octet-stream",
-                        dateModified = gFile.modifiedTime?.value ?: System.currentTimeMillis(),
-                        isDirectory = gFile.mimeType == "application/vnd.google-apps.folder"
+            val result = driveManager.listFiles(folderId)
+            result.fold(
+                onSuccess = { cloudFiles ->
+                    val mappedModels = cloudFiles.map { cFile ->
+                        AndroidFileModel(
+                            id = cFile.id,
+                            name = cFile.name,
+                            path = "drive://${cFile.id}",
+                            size = cFile.sizeBytes,
+                            mimeType = cFile.mimeType,
+                            dateModified = cFile.lastModified,
+                            isDirectory = cFile.isDirectory
+                        )
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        driveFiles = mappedModels,
+                        currentDriveFolderId = folderId,
+                        isScanning = false
+                    )
+                },
+                onFailure = { err ->
+                    _uiState.value = _uiState.value.copy(
+                        driveStatusMessage = err.message ?: "Failed to load Drive files",
+                        isScanning = false
                     )
                 }
-                _uiState.value = _uiState.value.copy(driveFiles = mappedModels, isScanning = false)
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(driveStatusMessage = "Drive error: ${e.message}", isScanning = false)
-            }
+            )
+        }
+    }
+
+    fun navigateDriveFolder(folderId: String, folderName: String) {
+        val currentCrumbs = _uiState.value.driveBreadcrumbs.toMutableList()
+        currentCrumbs.add(folderId to folderName)
+        _uiState.value = _uiState.value.copy(
+            currentDriveFolderId = folderId,
+            driveBreadcrumbs = currentCrumbs
+        )
+        loadDriveFiles(folderId)
+    }
+
+    fun navigateDriveBack() {
+        val currentCrumbs = _uiState.value.driveBreadcrumbs.toMutableList()
+        if (currentCrumbs.size > 1) {
+            currentCrumbs.removeAt(currentCrumbs.size - 1)
+            val parent = currentCrumbs.last()
+            _uiState.value = _uiState.value.copy(
+                currentDriveFolderId = parent.first,
+                driveBreadcrumbs = currentCrumbs
+            )
+            loadDriveFiles(parent.first)
+        }
+    }
+
+    fun searchDriveFiles(query: String) {
+        _uiState.value = _uiState.value.copy(driveSearchQuery = query)
+        if (query.isBlank()) {
+            loadDriveFiles(_uiState.value.currentDriveFolderId)
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isScanning = true, driveStatusMessage = null)
+            val result = driveManager.searchFiles(query)
+            result.fold(
+                onSuccess = { cloudFiles ->
+                    val mappedModels = cloudFiles.map { cFile ->
+                        AndroidFileModel(
+                            id = cFile.id,
+                            name = cFile.name,
+                            path = "drive://${cFile.id}",
+                            size = cFile.sizeBytes,
+                            mimeType = cFile.mimeType,
+                            dateModified = cFile.lastModified,
+                            isDirectory = cFile.isDirectory
+                        )
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        driveFiles = mappedModels,
+                        isScanning = false
+                    )
+                },
+                onFailure = { err ->
+                    _uiState.value = _uiState.value.copy(
+                        driveStatusMessage = err.message ?: "Search failed",
+                        isScanning = false
+                    )
+                }
+            )
+        }
+    }
+
+    fun createDriveFolder(name: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = driveManager.createFolder(_uiState.value.currentDriveFolderId, name)
+            result.fold(
+                onSuccess = {
+                    loadDriveFiles(_uiState.value.currentDriveFolderId)
+                    onResult(true, "Folder '$name' created in Google Drive")
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Failed to create Drive folder")
+                }
+            )
+        }
+    }
+
+    fun renameDriveFile(fileId: String, newName: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = driveManager.rename(fileId, newName)
+            result.fold(
+                onSuccess = {
+                    loadDriveFiles(_uiState.value.currentDriveFolderId)
+                    onResult(true, "Renamed to '$newName'")
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Rename failed")
+                }
+            )
+        }
+    }
+
+    fun deleteDriveFile(fileId: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = driveManager.delete(fileId)
+            result.fold(
+                onSuccess = {
+                    loadDriveFiles(_uiState.value.currentDriveFolderId)
+                    onResult(true, "Deleted item from Google Drive")
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Delete failed")
+                }
+            )
         }
     }
 
     fun uploadLocalFileToDrive(file: File, onResult: (Boolean, String) -> Unit) {
-        val account = signedInAccount
-        if (account == null) {
-            onResult(false, "Please sign in to Google Drive first")
-            return
-        }
         viewModelScope.launch {
-            try {
-                val uploaded = driveManager.uploadFile(account, file)
-                loadDriveFiles()
-                onResult(true, "Successfully uploaded ${uploaded.name} to Google Drive")
-            } catch (e: Exception) {
-                onResult(false, "Upload failed: ${e.message}")
-            }
+            val result = driveManager.uploadFile(file, _uiState.value.currentDriveFolderId)
+            result.fold(
+                onSuccess = { uploaded ->
+                    loadDriveFiles(_uiState.value.currentDriveFolderId)
+                    onResult(true, "Successfully uploaded ${uploaded.name} to Google Drive")
+                },
+                onFailure = { err ->
+                    onResult(false, "Upload failed: ${err.message}")
+                }
+            )
         }
     }
 
     fun downloadDriveFileToLocal(driveFileId: String, fileName: String, onResult: (Boolean, String) -> Unit) {
-        val account = signedInAccount
-        if (account == null) {
-            onResult(false, "Please sign in to Google Drive first")
-            return
-        }
         viewModelScope.launch {
-            try {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                val targetFile = File(downloadsDir, fileName)
-                driveManager.downloadFile(account, driveFileId, targetFile)
-                loadDirectory(File(_uiState.value.currentPath))
-                onResult(true, "Downloaded $fileName to Downloads")
-            } catch (e: Exception) {
-                onResult(false, "Download failed: ${e.message}")
-            }
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!downloadsDir.exists()) downloadsDir.mkdirs()
+            val targetFile = File(downloadsDir, fileName)
+            val result = driveManager.downloadFile(driveFileId, targetFile)
+            result.fold(
+                onSuccess = {
+                    loadDirectory(File(_uiState.value.currentPath))
+                    onResult(true, "Downloaded $fileName to Downloads folder")
+                },
+                onFailure = { err ->
+                    onResult(false, "Download failed: ${err.message}")
+                }
+            )
         }
     }
 
@@ -539,6 +785,24 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setSearchQuery(query: String) {
         _uiState.value = _uiState.value.copy(searchQuery = query)
+        performSearch()
+    }
+
+    fun setSearchCategory(category: SearchCategoryFilter) {
+        _uiState.value = _uiState.value.copy(searchCategory = category)
+        performSearch()
+    }
+
+    fun performSearch() {
+        viewModelScope.launch {
+            val query = SearchQuery(
+                queryText = _uiState.value.searchQuery,
+                category = _uiState.value.searchCategory,
+                showHidden = _uiState.value.showHiddenFiles
+            )
+            val results = searchEngine.search(query)
+            _uiState.value = _uiState.value.copy(searchResults = results)
+        }
     }
 
     fun setCategoryFilter(category: String?) {
@@ -546,7 +810,20 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         if (category == null) {
             _uiState.value = _uiState.value.copy(categoryFiles = emptyList())
         } else {
-            loadCategoryFilesRecursive(category)
+            val filter = when (category) {
+                "images" -> SearchCategoryFilter.IMAGES
+                "videos" -> SearchCategoryFilter.VIDEOS
+                "audio" -> SearchCategoryFilter.AUDIO
+                "docs" -> SearchCategoryFilter.DOCUMENTS
+                "apks" -> SearchCategoryFilter.APKS
+                "archives" -> SearchCategoryFilter.ARCHIVES
+                "large" -> SearchCategoryFilter.LARGE_FILES
+                else -> SearchCategoryFilter.ALL
+            }
+            viewModelScope.launch {
+                val results = searchEngine.search(SearchQuery(category = filter, showHidden = _uiState.value.showHiddenFiles))
+                _uiState.value = _uiState.value.copy(categoryFiles = results)
+            }
         }
     }
 
@@ -654,25 +931,64 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun createZipArchive(filesToZip: List<File>, zipName: String, targetDir: File) {
+    fun createZipArchive(
+        filesToZip: List<File>,
+        zipName: String,
+        targetDir: File,
+        level: CompressionLevel = CompressionLevel.NORMAL,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
         viewModelScope.launch {
-            repository.createZipArchive(filesToZip, zipName, targetDir)
-            loadDirectory(File(_uiState.value.currentPath))
-            loadStorageBreakdown()
-        }
-    }
-
-    fun extractZipArchive(zipFile: File, targetDir: File) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    ArchiveManager.extractAll(zipFile, targetDir)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+            val targetFile = File(targetDir, if (zipName.endsWith(".zip")) zipName else "$zipName.zip")
+            val success = withContext(Dispatchers.IO) {
+                archiveEngine.createZipArchive(filesToZip, targetFile, level)
             }
             loadDirectory(File(_uiState.value.currentPath))
             loadStorageBreakdown()
+            onResult?.invoke(success)
+        }
+    }
+
+    fun create7zArchive(
+        filesToZip: List<File>,
+        sevenZName: String,
+        targetDir: File,
+        level: CompressionLevel = CompressionLevel.NORMAL,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val targetFile = File(targetDir, if (sevenZName.endsWith(".7z")) sevenZName else "$sevenZName.7z")
+            val success = withContext(Dispatchers.IO) {
+                archiveEngine.createSevenZArchive(filesToZip, targetFile, level)
+            }
+            loadDirectory(File(_uiState.value.currentPath))
+            loadStorageBreakdown()
+            onResult?.invoke(success)
+        }
+    }
+
+    fun extractZipArchive(
+        zipFile: File,
+        targetDir: File,
+        selectedPaths: Set<String>? = null,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                archiveEngine.extract(zipFile, targetDir, selectedPaths)
+            }
+            loadDirectory(File(_uiState.value.currentPath))
+            loadStorageBreakdown()
+            onResult?.invoke(success)
+        }
+    }
+
+    fun cleanEmptyFolders(onResult: (Int) -> Unit) {
+        viewModelScope.launch {
+            val deleted = storageAnalyzerEngine.cleanEmptyFolders(_uiState.value.emptyFolders)
+            loadStorageBreakdown()
+            loadDirectory(File(_uiState.value.currentPath))
+            onResult(deleted)
         }
     }
 
@@ -717,13 +1033,13 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // ==========================================
-    // 1. DUPLICATE FINDER ENGINE
+    // 1. DUPLICATE FINDER ENGINE (3-Tier Progressive)
     // ==========================================
 
     fun scanDuplicateFiles() {
         viewModelScope.launch {
             val root = Environment.getExternalStorageDirectory()
-            AdvancedToolsManager.scanDuplicatesFlow(root).collect { progress ->
+            storageAnalyzerEngine.findDuplicatesProgressiveFlow(root).collect { progress ->
                 _uiState.value = _uiState.value.copy(
                     duplicateScanProgress = progress,
                     duplicateGroups = progress.duplicateGroups,
@@ -974,18 +1290,96 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun uploadLocalFileToRemote(localFile: File, onResult: (Boolean, String) -> Unit) {
-        val server = _uiState.value.activeRemoteServer ?: return
+    fun setAutoCleanTrashDays(days: Int) {
+        prefs.edit().putInt("auto_clean_trash_days", days).apply()
+        _uiState.value = _uiState.value.copy(autoCleanTrashDays = days)
+        repository.autoCleanOldTrash(days)
+        loadTrashItems()
+    }
+
+    fun batchBackupAppDetailsApks(apps: List<InstalledAppDetails>, onResult: (Int, Int) -> Unit) {
         viewModelScope.launch {
-            val remoteDir = _uiState.value.currentRemotePath
-            val result = networkStorageManager.uploadFile(server, localFile, remoteDir) { }
+            var successCount = 0
+            var failedCount = 0
+            withContext(Dispatchers.IO) {
+                for (app in apps) {
+                    val appInfo = InstalledAppInfo(
+                        name = app.name,
+                        packageName = app.packageName,
+                        versionName = app.versionName,
+                        apkPath = app.apkPath,
+                        sizeBytes = app.sizeBytes
+                    )
+                    val backedUp = repository.backupAppApk(appInfo)
+                    if (backedUp != null) {
+                        successCount++
+                    } else {
+                        failedCount++
+                    }
+                }
+            }
+            loadDirectory(File(_uiState.value.currentPath))
+            loadStorageBreakdown()
+            onResult(successCount, failedCount)
+        }
+    }
+
+    fun testNetworkServer(config: NetworkServerConfig, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = networkStorageManager.testConnection(config)
             result.fold(
-                onSuccess = {
-                    connectToNetworkServer(server, remoteDir)
-                    onResult(true, "Uploaded ${localFile.name} to remote server")
+                onSuccess = { msg ->
+                    onResult(true, msg)
                 },
                 onFailure = { err ->
-                    onResult(false, err.message ?: "Upload failed")
+                    onResult(false, err.message ?: "Connection failed")
+                }
+            )
+        }
+    }
+
+    // ==========================================
+    // 7. BACKUP ENGINE & RESTORE
+    // ==========================================
+
+    fun loadBackupHistory() {
+        val history = backupEngine.getBackupHistory()
+        _uiState.value = _uiState.value.copy(backupHistory = history)
+    }
+
+    fun executeBackupJob(config: BackupJobConfig, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                backupProgress = BackupExecutionProgress(isRunning = true, statusMessage = "Starting backup '${config.name}'...")
+            )
+            val res = backupEngine.executeBackup(config) { prog ->
+                _uiState.value = _uiState.value.copy(backupProgress = prog)
+            }
+            loadBackupHistory()
+            res.fold(
+                onSuccess = { rec ->
+                    loadDirectory(File(_uiState.value.currentPath))
+                    loadStorageBreakdown()
+                    onResult(true, "Backup '${config.name}' completed (${rec.totalFilesBackedUp} files)")
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Backup failed")
+                }
+            )
+        }
+    }
+
+    fun restoreBackupArchive(archiveFile: File, targetDir: File, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val res = backupEngine.restoreBackupArchive(archiveFile, targetDir)
+            res.fold(
+                onSuccess = {
+                    loadDirectory(targetDir)
+                    loadStorageBreakdown()
+                    onResult(true, "Restored backup archive to ${targetDir.name}")
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Restore failed")
                 }
             )
         }

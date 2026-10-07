@@ -27,6 +27,20 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        create("release") {
+            val keystorePath = System.getenv("KEYSTORE_FILE")
+            if (keystorePath != null && file(keystorePath).exists()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "release123"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "release-key"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: "release123"
+            } else if (file("${rootDir}/debug.keystore").exists()) {
+                storeFile = file("${rootDir}/debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {
@@ -34,7 +48,9 @@ android {
             signingConfig = signingConfigs.getByName("debugConfig")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -110,9 +126,16 @@ dependencies {
     // PDF text search support
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
+    // DocumentFile for SAF (Storage Access Framework)
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
     // FTP network client
     implementation("commons-net:commons-net:3.10.0")
 
     // QR Code generation
     implementation("com.google.zxing:core:3.5.3")
+
+    // Unit Testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }

@@ -31,7 +31,8 @@ data class TrashItemModel(
     val originalName: String,
     val originalParentPath: String,
     val trashedAtTimestamp: Long,
-    val size: Long
+    val size: Long,
+    val mimeType: String = "application/octet-stream"
 )
 
 data class AndroidFileModel(
@@ -150,27 +151,28 @@ class StorageRepository(private val context: Context) {
     }
 
     /**
-     * Auto-empty trash files older than 30 days. Called on app start.
+     * Auto-empty trash files older than configured days (default 30 days). Pass -1 to disable auto-cleanup.
      */
-    fun autoCleanOldTrash() {
-        val thirtyDaysMs = 30L * 24 * 60 * 60 * 1000L
-        val now = System.currentTimeMillis()
-        val meta = loadTrashMeta()
+     fun autoCleanOldTrash(autoCleanDays: Int = 30) {
+         if (autoCleanDays <= 0) return
+         val maxAgeMs = autoCleanDays.toLong() * 24 * 60 * 60 * 1000L
+         val now = System.currentTimeMillis()
+         val meta = loadTrashMeta()
 
-        val files = trashDirectory.listFiles() ?: return
-        for (file in files) {
-            if (file.name == "trash_metadata.json") continue
+         val files = trashDirectory.listFiles() ?: return
+         for (file in files) {
+             if (file.name == "trash_metadata.json") continue
 
-            val fileMeta = meta.optJSONObject(file.name)
-            val trashedAt = fileMeta?.optLong("trashedAt") ?: file.lastModified()
+             val fileMeta = meta.optJSONObject(file.name)
+             val trashedAt = fileMeta?.optLong("trashedAt") ?: file.lastModified()
 
-            if ((now - trashedAt) > thirtyDaysMs) {
-                if (file.isDirectory) file.deleteRecursively() else file.delete()
-                meta.remove(file.name)
-            }
-        }
-        saveTrashMeta(meta)
-    }
+             if ((now - trashedAt) > maxAgeMs) {
+                 if (file.isDirectory) file.deleteRecursively() else file.delete()
+                 meta.remove(file.name)
+             }
+         }
+         saveTrashMeta(meta)
+     }
 
     /**
      * Background scanning flow reporting indexed count and progress to UI.
@@ -268,14 +270,32 @@ class StorageRepository(private val context: Context) {
     }
 
     /**
-     * Soft-deletes a real file by moving it to .trash with exact original filename metadata.
+     * Soft-deletes a real file by moving it to .trash with exact original filename and MIME type metadata.
      */
-    fun moveToTrash(file: File): File? {
+    fun moveToTrash(file: File, mimeType: String = ""): File? {
         if (!file.exists()) return null
 
         val now = System.currentTimeMillis()
         val trashedName = "${now}__TRASH__${file.name}"
         val trashedFile = File(trashDirectory, trashedName)
+
+        val resolvedMime = if (mimeType.isNotBlank()) mimeType else {
+            val ext = file.extension.lowercase()
+            when (ext) {
+                "png" -> "image/png"
+                "jpg", "jpeg" -> "image/jpeg"
+                "webp" -> "image/webp"
+                "gif" -> "image/gif"
+                "mp4" -> "video/mp4"
+                "mp3" -> "audio/mpeg"
+                "pdf" -> "application/pdf"
+                "apk" -> "application/vnd.android.package-archive"
+                "zip" -> "application/zip"
+                "7z" -> "application/x-7z-compressed"
+                "txt" -> "text/plain"
+                else -> "application/octet-stream"
+            }
+        }
 
         if (file.renameTo(trashedFile)) {
             val meta = loadTrashMeta()
@@ -283,6 +303,8 @@ class StorageRepository(private val context: Context) {
                 put("originalName", file.name)
                 put("originalParentPath", file.parentFile?.absolutePath ?: Environment.getExternalStorageDirectory().absolutePath)
                 put("trashedAt", now)
+                put("mimeType", resolvedMime)
+                put("size", trashedFile.length())
             }
             meta.put(trashedName, fileObj)
             saveTrashMeta(meta)
@@ -349,7 +371,7 @@ class StorageRepository(private val context: Context) {
     }
 
     /**
-     * Lists all items in trash with their original name and metadata.
+     * Lists all items in trash with their original name, mime type, and metadata.
      */
     fun listTrashItems(): List<TrashItemModel> {
         val meta = loadTrashMeta()
@@ -362,13 +384,15 @@ class StorageRepository(private val context: Context) {
             val parentPath = fileMeta?.optString("originalParentPath")
                 ?: Environment.getExternalStorageDirectory().absolutePath
             val trashedAt = fileMeta?.optLong("trashedAt") ?: file.lastModified()
+            val mimeType = fileMeta?.optString("mimeType", "application/octet-stream") ?: "application/octet-stream"
 
             TrashItemModel(
                 trashedFile = file,
                 originalName = originalName,
                 originalParentPath = parentPath,
                 trashedAtTimestamp = trashedAt,
-                size = file.length()
+                size = file.length(),
+                mimeType = mimeType
             )
         }.sortedByDescending { it.trashedAtTimestamp }
     }
