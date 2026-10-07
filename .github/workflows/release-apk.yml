@@ -1,24 +1,32 @@
 name: Release APK
+
 on:
   push:
     branches:
       - main
   workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
   build-release:
     name: Build & Release APK
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
       - name: Set up JDK 17 (Temurin)
         uses: actions/setup-java@v4
+        with:
           distribution: 'temurin'
           java-version: '17'
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+
       - name: Generate Temporary Release Keystore
         run: |
           keytool -genkeypair \
@@ -35,8 +43,10 @@ jobs:
           echo "KEYSTORE_PASSWORD=release123" >> $GITHUB_ENV
           echo "KEY_ALIAS=release-key" >> $GITHUB_ENV
           echo "KEY_PASSWORD=release123" >> $GITHUB_ENV
+
       - name: Build Release APK
         run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
+
       - name: Verify Release APK Exists
         run: |
           if [ ! -f "app/build/outputs/apk/release/app-release.apk" ]; then
@@ -44,11 +54,14 @@ jobs:
             exit 1
           fi
           echo "APK generated successfully: $(ls -lh app/build/outputs/apk/release/app-release.apk)"
+
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
+        with:
           name: release-apk
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
       - name: Create GitHub Release Tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -59,12 +72,12 @@ jobs:
             --title "Release $TAG_NAME" \
             --notes "Automated production release build for Files App" \
             --latest || true
+
       - name: Summary Report
         run: |
-          echo "### Production Release Build Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "### Production Release Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: Succeeded" >> $GITHUB_STEP_SUMMARY
           echo "- **Target APK**: \`app/build/outputs/apk/release/app-release.apk\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Artifact**: \`release-apk\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag**: \`release-${{ github.run_number }}-${{ github.run_attempt }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **JDK**: Temurin 17" >> $GITHUB_STEP_SUMMARY
-          echo "- **Gradle**: 9.3.1" >> $GITHUB_STEP_SUMMARY
