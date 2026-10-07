@@ -8,11 +8,16 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
+import androidx.compose.ui.composed
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -34,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
@@ -45,6 +51,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.example.filesapp.data.AndroidFileModel
@@ -55,6 +67,30 @@ import com.google.android.gms.common.api.ApiException
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+
+fun Modifier.bounceClick() = composed {
+    var isPressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "bounceScale"
+    )
+
+    this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .pointerInput(Unit) {
+            detectTapGestures(
+                onPress = {
+                    isPressed = true
+                    tryAwaitRelease()
+                    isPressed = false
+                }
+            )
+        }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -78,6 +114,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showMoveFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showCopyFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var showCreateFileDialog by remember { mutableStateOf(false) }
+    var createFolderNameInput by remember { mutableStateOf("") }
+    var createFileNameInput by remember { mutableStateOf("") }
 
     var showFileDetailsDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showOpenWithDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -109,6 +149,42 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var showEpubReaderDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showExtractZipDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showOpenFallbackDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+
+    // Custom NestedScroll Pull-to-Refresh implementation
+    var isRefreshing by remember { mutableStateOf(false) }
+    var pullOffset by remember { mutableStateOf(0f) }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < 0 && pullOffset > 0) {
+                    val newOffset = (pullOffset + available.y).coerceAtLeast(0f)
+                    val consumed = pullOffset - newOffset
+                    pullOffset = newOffset
+                    return Offset(0f, consumed)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (available.y > 0) {
+                    pullOffset = (pullOffset + available.y * 0.4f).coerceAtMost(300f)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (pullOffset > 150f && !isRefreshing) {
+                    isRefreshing = true
+                    viewModel.loadDirectory(File(uiState.currentPath))
+                    viewModel.loadStorageBreakdown()
+                    isRefreshing = false
+                }
+                pullOffset = 0f
+                return Velocity.Zero
+            }
+        }
+    }
 
     // Google Sign-In Activity Result Launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -247,6 +323,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                     "md" -> showMarkdownViewerDialog = tempModel
                     "epub" -> showEpubReaderDialog = tempModel
                     "apk" -> showApkInstallerDialog = tempModel
+                    "doc", "docx", "xls", "xlsx", "ppt", "pptx" -> {
+                        launchOpenWithIntent(tempModel)
+                    }
                     "txt", "json", "kt", "java", "xml", "js", "css" -> {
                         textEditorContent = decryptedFile.readText()
                         showTextEditorDialog = tempModel
@@ -295,8 +374,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
     // Samsung Back Press Handling
     BackHandler(enabled = true) {
-        if (activeBottomNav != "Files") {
-            activeBottomNav = "Files"
+        if (uiState.activeCategory != null) {
+            viewModel.setCategoryFilter(null)
+            activeBottomNav = "Dashboard"
+            return@BackHandler
+        }
+        if (activeBottomNav != "Dashboard") {
+            activeBottomNav = "Dashboard"
             return@BackHandler
         }
         val currentPath = uiState.currentPath
@@ -315,20 +399,12 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         }
     }
 
-    val filteredFiles = remember(uiState.realFiles, uiState.searchQuery, uiState.activeCategory, activeBottomNav, uiState.starredFiles) {
-        uiState.realFiles.filter { file ->
+    val filteredFiles = remember(uiState.realFiles, uiState.categoryFiles, uiState.searchQuery, uiState.activeCategory, activeBottomNav, uiState.starredFiles) {
+        val baseList = if (uiState.activeCategory != null) uiState.categoryFiles else uiState.realFiles
+        baseList.filter { file ->
             if (uiState.searchQuery.isNotEmpty() && !file.name.contains(uiState.searchQuery, ignoreCase = true)) return@filter false
             if (activeBottomNav == "Starred" && !uiState.starredFiles.contains(file.path)) return@filter false
-            if (uiState.activeCategory != null) {
-                when (uiState.activeCategory) {
-                    "images" -> file.mimeType.startsWith("image/")
-                    "docs" -> file.mimeType.contains("pdf") || file.mimeType.startsWith("text/") || file.name.endsWith(".doc") || file.name.endsWith(".docx")
-                    "audio" -> file.mimeType.startsWith("audio/")
-                    "apks" -> file.name.endsWith(".apk") || file.mimeType.contains("android.package-archive")
-                    "archives" -> file.name.endsWith(".zip") || file.name.endsWith(".rar") || file.name.endsWith(".7z") || file.name.endsWith(".tar") || file.name.endsWith(".gz")
-                    else -> true
-                }
-            } else true
+            true
         }
     }
 
@@ -354,6 +430,93 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
     Scaffold(
         containerColor = bgColor,
+        floatingActionButton = {
+            if (activeBottomNav == "Files" && uiState.activeCategory == null) {
+                var fabExpanded by remember { mutableStateOf(false) }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (fabExpanded) {
+                        // New File button
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = cardColor,
+                                shadowElevation = 4.dp
+                            ) {
+                                Text(
+                                    text = "New File",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textPrimary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            FloatingActionButton(
+                                onClick = {
+                                    createFileNameInput = ""
+                                    showCreateFileDialog = true
+                                    fabExpanded = false
+                                },
+                                containerColor = appIndigo,
+                                contentColor = Color.White,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(Icons.Default.NoteAdd, contentDescription = "New File")
+                            }
+                        }
+
+                        // New Folder button
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = cardColor,
+                                shadowElevation = 4.dp
+                            ) {
+                                Text(
+                                    text = "New Folder",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textPrimary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            FloatingActionButton(
+                                onClick = {
+                                    createFolderNameInput = ""
+                                    showCreateFolderDialog = true
+                                    fabExpanded = false
+                                },
+                                containerColor = appGreen,
+                                contentColor = Color.White,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(Icons.Default.CreateNewFolder, contentDescription = "New Folder")
+                            }
+                        }
+                    }
+
+                    FloatingActionButton(
+                        onClick = { fabExpanded = !fabExpanded },
+                        containerColor = appBlue,
+                        contentColor = Color.White,
+                        shape = CircleShape
+                    ) {
+                        Icon(
+                            imageVector = if (fabExpanded) Icons.Default.Close else Icons.Default.Add,
+                            contentDescription = "Create Options"
+                        )
+                    }
+                }
+            }
+        },
         bottomBar = {
             // Elegant, elevated One UI / iOS hybrid bottom nav bar with large, comfortable touch targets (48dp+)
             Surface(
@@ -388,13 +551,6 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 .height(48.dp)
                                 .clickable {
                                     activeBottomNav = navKey
-                                    if (navKey == "Vault") {
-                                        if (!viewModel.isVaultPinSet()) {
-                                            showPinSetupDialog = true
-                                        } else {
-                                            showPinUnlockDialog = true
-                                        }
-                                    }
                                     if (navKey == "Drive" && uiState.isDriveConnected) {
                                         showDriveBrowserDialog = true
                                     }
@@ -426,10 +582,14 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            Crossfade(
+            AnimatedContent(
                 targetState = activeBottomNav,
-                animationSpec = tween(300),
-                modifier = Modifier.fillMaxSize()
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
+                    fadeOut(animationSpec = tween(90))
+                },
+                modifier = Modifier.fillMaxSize(),
+                label = "navTransition"
             ) { targetScreen ->
                 when (targetScreen) {
                     "Dashboard" -> {
@@ -494,31 +654,40 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
                                         if (breakdown != null) {
                                             val usedFraction = breakdown.usedSpaceBytes.toFloat() / breakdown.totalSpaceBytes
-                                            LinearProgressIndicator(
-                                                progress = { usedFraction },
+                                            Box(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .height(10.dp)
-                                                    .clip(CircleShape),
-                                                color = appBlue,
-                                                trackColor = separatorColor
-                                            )
+                                                    .height(12.dp)
+                                                    .clip(CircleShape)
+                                                    .background(separatorColor)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxHeight()
+                                                        .fillMaxWidth(usedFraction)
+                                                        .background(
+                                                            brush = Brush.horizontalGradient(
+                                                                colors = listOf(appBlue, appIndigo)
+                                                            )
+                                                        )
+                                                )
+                                            }
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text(
-                                                    text = "${formatFileSize(breakdown.usedSpaceBytes)} Used",
+                                                    text = "${formatFileSize(breakdown.usedSpaceBytes)} of ${formatFileSize(breakdown.totalSpaceBytes)} used",
                                                     fontSize = 12.sp,
                                                     color = textMuted,
                                                     fontWeight = FontWeight.Medium
                                                 )
                                                 Text(
-                                                    text = "${formatFileSize(breakdown.freeSpaceBytes)} Free",
+                                                    text = "${formatFileSize(breakdown.freeSpaceBytes)} free",
                                                     fontSize = 12.sp,
-                                                    color = textMuted,
-                                                    fontWeight = FontWeight.Medium
+                                                    color = appBlue,
+                                                    fontWeight = FontWeight.Bold
                                                 )
                                             }
                                         } else {
@@ -798,93 +967,190 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                     }
 
                     "Files" -> {
-                        // Standard Directory File Browser in elegant One UI theme
-                        LazyColumn(
+                        // Standard Directory File Browser in elegant One UI theme with custom robust NestedScroll Pull-To-Refresh
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 20.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                                .nestedScroll(nestedScrollConnection)
                         ) {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 20.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
                             item {
                                 Spacer(modifier = Modifier.height(48.dp))
+                                if (uiState.activeCategory != null) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        IconButton(
+                                            onClick = {
+                                                viewModel.setCategoryFilter(null)
+                                                activeBottomNav = "Dashboard"
+                                            },
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(cardColor)
+                                        ) {
+                                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = appBlue)
+                                        }
+                                        Column {
+                                            Text(
+                                                text = uiState.activeCategory?.capitalize(Locale.ROOT) ?: "Category",
+                                                fontSize = 34.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = textPrimary,
+                                                letterSpacing = (-0.5).sp
+                                            )
+                                            Text(
+                                                text = "Recursive category view",
+                                                fontSize = 14.sp,
+                                                color = textMuted
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "Explorer",
+                                                fontSize = 34.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = textPrimary,
+                                                letterSpacing = (-0.5).sp
+                                            )
+                                            Text(
+                                                text = "Manage your internal storage",
+                                                fontSize = 14.sp,
+                                                color = textMuted
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { viewModel.toggleGridView() },
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(cardColor)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (uiState.isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                                                contentDescription = "Toggle Grid/List",
+                                                tint = appBlue
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Sleek horizontal scrollable categories chip bar under big bold header
+                            item {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column {
-                                        Text(
-                                            text = "Explorer",
-                                            fontSize = 34.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = textPrimary,
-                                            letterSpacing = (-0.5).sp
-                                        )
-                                        Text(
-                                            text = "Manage your internal storage",
-                                            fontSize = 14.sp,
-                                            color = textMuted
-                                        )
-                                    }
+                                    val chips = listOf(
+                                        Triple(null, "All Files", Icons.Default.AllInbox),
+                                        Triple("images", "Images", Icons.Default.Image),
+                                        Triple("docs", "Documents", Icons.Default.Description),
+                                        Triple("audio", "Audio", Icons.Default.MusicNote),
+                                        Triple("apks", "APKs", Icons.Default.PhoneAndroid),
+                                        Triple("archives", "Archives", Icons.Default.FolderZip)
+                                    )
+                                    chips.forEach { (catKey, catTitle, icon) ->
+                                        val isSelected = uiState.activeCategory == catKey
+                                        val chipBg = if (isSelected) appBlue else cardColor
+                                        val chipContentColor = if (isSelected) Color.White else textPrimary
+                                        val borderStroke = if (isSelected) null else BorderStroke(1.dp, separatorColor)
 
-                                    IconButton(
-                                        onClick = { viewModel.toggleGridView() },
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(cardColor)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (uiState.isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                                            contentDescription = "Toggle Grid/List",
-                                            tint = appBlue
-                                        )
+                                        Surface(
+                                            onClick = { viewModel.setCategoryFilter(catKey) },
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = chipBg,
+                                            contentColor = chipContentColor,
+                                            border = borderStroke,
+                                            shadowElevation = if (isSelected) 4.dp else 1.dp,
+                                            modifier = Modifier.bounceClick().animateContentSize()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = icon,
+                                                    contentDescription = null,
+                                                    tint = if (isSelected) Color.White else appBlue,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    text = catTitle,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
 
                             // Directory Path Bar
-                            item {
-                                val isAtRoot = uiState.currentPath == "/" || uiState.currentPath == rootPath
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = cardColor)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                            if (uiState.activeCategory == null) {
+                                item {
+                                    val isAtRoot = uiState.currentPath == "/" || uiState.currentPath == rootPath
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(containerColor = cardColor)
                                     ) {
-                                        if (!isAtRoot) {
-                                            IconButton(
-                                                onClick = {
-                                                    val parent = File(uiState.currentPath).parentFile
-                                                    if (parent != null && parent.exists()) {
-                                                        viewModel.setCurrentPath(parent.absolutePath)
-                                                    }
-                                                },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = appBlue)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (!isAtRoot) {
+                                                IconButton(
+                                                    onClick = {
+                                                        val parent = File(uiState.currentPath).parentFile
+                                                        if (parent != null && parent.exists()) {
+                                                            viewModel.setCurrentPath(parent.absolutePath)
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = appBlue)
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
                                             }
-                                            Spacer(modifier = Modifier.width(4.dp))
+
+                                            Icon(Icons.Default.Folder, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+
+                                            val displayPath = if (isAtRoot) "Internal Storage" else "Storage / " + uiState.currentPath.removePrefix(rootPath).trimStart('/')
+                                            Text(
+                                                text = displayPath,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
                                         }
-
-                                        Icon(Icons.Default.Folder, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        val displayPath = if (isAtRoot) "Internal Storage" else "Storage / " + uiState.currentPath.removePrefix(rootPath).trimStart('/')
-                                        Text(
-                                            text = displayPath,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = textPrimary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
                                     }
                                 }
                             }
@@ -945,26 +1211,39 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                 Card(
                                                     modifier = Modifier
                                                         .height(84.dp)
+                                                        .shadow(2.dp, RoundedCornerShape(20.dp))
+                                                        .bounceClick()
                                                         .clickable { viewModel.setCurrentPath(folder.path) },
-                                                    shape = RoundedCornerShape(18.dp),
-                                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                                    shape = RoundedCornerShape(20.dp),
+                                                    colors = CardDefaults.cardColors(containerColor = Color.Transparent)
                                                 ) {
-                                                    Column(
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                                        verticalArrangement = Arrangement.Center
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .background(
+                                                                Brush.verticalGradient(
+                                                                    colors = if (isDark) listOf(cardColor, cardColor.copy(alpha = 0.85f))
+                                                                             else listOf(Color.White, Color(0xFFF9FAFC))
+                                                                )
+                                                            ),
+                                                        contentAlignment = Alignment.Center
                                                     ) {
-                                                        Icon(Icons.Default.Folder, contentDescription = folder.name, tint = appBlue, modifier = Modifier.size(28.dp))
-                                                        Spacer(modifier = Modifier.height(4.dp))
-                                                        Text(
-                                                            text = folder.name,
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = textPrimary,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis,
-                                                            modifier = Modifier.padding(horizontal = 6.dp)
-                                                        )
+                                                        Column(
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = Arrangement.Center
+                                                        ) {
+                                                            Icon(Icons.Default.Folder, contentDescription = folder.name, tint = appBlue, modifier = Modifier.size(28.dp))
+                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Text(
+                                                                text = folder.name,
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = textPrimary,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                                modifier = Modifier.padding(horizontal = 6.dp)
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1093,13 +1372,21 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .shadow(2.dp, RoundedCornerShape(20.dp))
+                                            .bounceClick()
                                             .clickable { onFileClick(file) },
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(containerColor = cardColor)
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
                                     ) {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
+                                                .background(
+                                                    Brush.verticalGradient(
+                                                        colors = if (isDark) listOf(cardColor, cardColor.copy(alpha = 0.85f))
+                                                                 else listOf(Color.White, Color(0xFFF9FAFC))
+                                                    )
+                                                )
                                                 .padding(12.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1165,16 +1452,578 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 Spacer(modifier = Modifier.height(20.dp))
                             }
                         }
+
+                        // Pull-to-refresh Indicator Overlay (rotates and transitions beautifully)
+                        if (pullOffset > 0f || isRefreshing) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = (16 + (pullOffset / 4)).dp)
+                                    .size(40.dp)
+                                    .shadow(4.dp, CircleShape)
+                                    .background(cardColor, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isRefreshing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = appBlue)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        tint = appBlue,
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .graphicsLayer(rotationZ = pullOffset * 2.5f)
+                                    )
+                                }
+                            }
+                        }
+                        }
                     }
 
                     "Vault" -> {
-                        // Vault placeholder wrapper matching animation
-                        Box(modifier = Modifier.fillMaxSize())
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (!viewModel.isVaultPinSet()) {
+                                // PIN Setup Screen inside tab
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Default.Lock, contentDescription = null, tint = appBlue, modifier = Modifier.size(64.dp))
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text("Set Vault 4-Digit PIN", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Enter a 4-digit PIN to secure your Private Vault.", fontSize = 14.sp, color = textMuted, textAlign = TextAlign.Center)
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    
+                                    OutlinedTextField(
+                                        value = pinSetupInput,
+                                        onValueChange = { if (it.length <= 4) pinSetupInput = it },
+                                        label = { Text("Enter PIN") },
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(0.8f)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    OutlinedTextField(
+                                        value = pinSetupConfirm,
+                                        onValueChange = { if (it.length <= 4) pinSetupConfirm = it },
+                                        label = { Text("Confirm PIN") },
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(0.8f)
+                                    )
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    Button(
+                                        onClick = {
+                                            if (pinSetupInput.length == 4 && pinSetupInput == pinSetupConfirm) {
+                                                viewModel.saveVaultPin(pinSetupInput)
+                                                cachedVaultPin = pinSetupInput
+                                                pinSetupInput = ""
+                                                pinSetupConfirm = ""
+                                                viewModel.loadVaultFiles()
+                                                Toast.makeText(context, "Vault PIN created successfully!", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "PINs must match and be exactly 4 digits", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                                        modifier = Modifier.fillMaxWidth(0.8f)
+                                    ) {
+                                        Text("Save PIN & Unlock", color = Color.White)
+                                    }
+                                }
+                            } else if (cachedVaultPin.isBlank()) {
+                                // PIN Unlock Screen inside tab
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Default.Lock, contentDescription = null, tint = appBlue, modifier = Modifier.size(64.dp))
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text("Unlock Private Vault", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Enter your 4-digit PIN to access encrypted files.", fontSize = 14.sp, color = textMuted, textAlign = TextAlign.Center)
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    
+                                    OutlinedTextField(
+                                        value = pinUnlockInput,
+                                        onValueChange = { 
+                                            if (it.length <= 4) {
+                                                pinUnlockInput = it
+                                                if (it.length == 4) {
+                                                    if (viewModel.verifyVaultPin(it)) {
+                                                        cachedVaultPin = it
+                                                        pinUnlockInput = ""
+                                                        viewModel.loadVaultFiles()
+                                                    } else {
+                                                        Toast.makeText(context, "Incorrect PIN", Toast.LENGTH_SHORT).show()
+                                                        pinUnlockInput = ""
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        label = { Text("Enter PIN") },
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(0.8f)
+                                    )
+                                }
+                            } else {
+                                // Unlocked Full Screen Vault Screen
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(bgColor)
+                                ) {
+                                    // Elegant One UI style top bar
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 20.dp, vertical = 16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Icon(Icons.Default.Lock, contentDescription = null, tint = appBlue, modifier = Modifier.size(24.dp))
+                                            Text(
+                                                text = "Private Vault",
+                                                fontSize = 24.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = textPrimary
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                cachedVaultPin = ""
+                                                activeBottomNav = "Dashboard"
+                                                try {
+                                                    File(context.cacheDir, "vault_previews").deleteRecursively()
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(cardColor)
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = "Close Vault", tint = textMuted)
+                                        }
+                                    }
+
+                                    Text(
+                                        text = "AES-256-GCM encrypted files. Tapping any file previews it directly in-app.",
+                                        fontSize = 12.sp,
+                                        color = textMuted,
+                                        modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp)
+                                    )
+
+                                    // Content List
+                                    if (uiState.vaultFiles.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxWidth(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Icon(Icons.Default.LockOpen, contentDescription = null, tint = textMuted, modifier = Modifier.size(64.dp))
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Text(
+                                                    text = "No files in vault",
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = textPrimary
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Files you encrypt will appear here safely.",
+                                                    fontSize = 12.sp,
+                                                    color = textMuted
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        LazyColumn(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 20.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            items(uiState.vaultFiles) { vaultFile ->
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { previewVaultFile(vaultFile) },
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(14.dp),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                            modifier = Modifier.weight(1f)
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(40.dp)
+                                                                    .clip(RoundedCornerShape(10.dp))
+                                                                    .background(appBlue.copy(alpha = 0.12f)),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Icon(Icons.Default.Key, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
+                                                            }
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(
+                                                                    text = vaultFile.name,
+                                                                    fontSize = 14.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = textPrimary,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                                Text(
+                                                                    text = formatFileSize(vaultFile.size),
+                                                                    fontSize = 11.sp,
+                                                                    color = textMuted
+                                                                )
+                                                            }
+                                                        }
+
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            TextButton(
+                                                                onClick = { showRestoreVaultFileDialog = vaultFile }
+                                                            ) {
+                                                                Text("Restore", fontSize = 12.sp, color = appBlue, fontWeight = FontWeight.Bold)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     "Drive" -> {
-                        // Google Drive state browser wrapper matching animation
-                        Box(modifier = Modifier.fillMaxSize())
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp)
+                        ) {
+                            Spacer(modifier = Modifier.height(48.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Google Drive",
+                                        fontSize = 34.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = textPrimary,
+                                        letterSpacing = (-0.5).sp
+                                    )
+                                    Text(
+                                        text = "Cloud files integration",
+                                        fontSize = 14.sp,
+                                        color = textMuted
+                                    )
+                                }
+
+                                if (uiState.isDriveConnected) {
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.signOutGoogleDrive {
+                                                Toast.makeText(context, "Google Drive disconnected", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    ) {
+                                        Text("Disconnect", color = appRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            if (!uiState.isDriveConnected) {
+                                // Signed Out State with Premium styling
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(24.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Cloud,
+                                            contentDescription = null,
+                                            tint = appBlue,
+                                            modifier = Modifier.size(64.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "Connect Google Drive",
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textPrimary
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "View and download your Drive files in place, or backup local files directly to the secure cloud.",
+                                            fontSize = 13.sp,
+                                            color = textMuted,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(24.dp))
+
+                                        Button(
+                                            onClick = { startGoogleSignIn() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                                            shape = RoundedCornerShape(16.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(50.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = Color.White,
+                                                    modifier = Modifier.size(20.dp)
+                                                ) {
+                                                    Box(
+                                                        contentAlignment = Alignment.Center,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    ) {
+                                                        Text(
+                                                            text = "G",
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Black,
+                                                            color = appBlue
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = "Connect to Google Drive",
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
+                                        }
+
+                                        if (uiState.driveStatusMessage != null) {
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            Text(
+                                                text = uiState.driveStatusMessage ?: "",
+                                                fontSize = 11.sp,
+                                                color = appRed,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    }
+                                }
+                            } else if (uiState.isScanning) {
+                                // Loading / Connecting Indicator
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        CircularProgressIndicator(color = appBlue, strokeWidth = 3.dp)
+                                        Text(
+                                            text = "Syncing Google Drive files...",
+                                            fontSize = 14.sp,
+                                            color = textPrimary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            } else if (uiState.driveStatusMessage != null) {
+                                // Error State with Clean Retry Card
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(24.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.CloudOff,
+                                            contentDescription = null,
+                                            tint = appRed,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "Connection Issue",
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textPrimary
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = uiState.driveStatusMessage ?: "An error occurred with Google Drive integration.",
+                                            fontSize = 12.sp,
+                                            color = textMuted,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(20.dp))
+                                        Button(
+                                            onClick = { viewModel.loadDriveFiles() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Retry Connection", color = Color.White)
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Connected File Browser directly in the tab!
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Account: ${uiState.driveUserEmail}",
+                                            fontSize = 12.sp,
+                                            color = textMuted,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        IconButton(
+                                            onClick = { viewModel.loadDriveFiles() },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = appBlue, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+
+                                    if (uiState.driveFiles.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(1f),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Icon(Icons.Default.FolderOpen, contentDescription = null, tint = textMuted, modifier = Modifier.size(48.dp))
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text("No files found in Google Drive root", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                            }
+                                        }
+                                    } else {
+                                        LazyColumn(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            items(uiState.driveFiles) { driveFile ->
+                                                Card(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(12.dp),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                            modifier = Modifier.weight(1f)
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(40.dp)
+                                                                    .clip(RoundedCornerShape(10.dp))
+                                                                    .background(appBlue.copy(alpha = 0.12f)),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = if (driveFile.isDirectory) Icons.Default.Folder else Icons.Default.Cloud,
+                                                                    contentDescription = null,
+                                                                    tint = appBlue,
+                                                                    modifier = Modifier.size(20.dp)
+                                                                )
+                                                            }
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(
+                                                                    text = driveFile.name,
+                                                                    fontSize = 13.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = textPrimary,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                                Text(
+                                                                    text = if (driveFile.isDirectory) "Folder" else formatFileSize(driveFile.size),
+                                                                    fontSize = 11.sp,
+                                                                    color = textMuted
+                                                                )
+                                                            }
+                                                        }
+
+                                                        if (!driveFile.isDirectory) {
+                                                            IconButton(
+                                                                onClick = {
+                                                                    viewModel.downloadDriveFileToLocal(driveFile.id, driveFile.name) { success, msg ->
+                                                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                                                    }
+                                                                },
+                                                                modifier = Modifier.size(36.dp)
+                                                            ) {
+                                                                Icon(Icons.Default.Download, contentDescription = "Download to local Downloads folder", tint = appBlue)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     "More" -> {
@@ -1346,25 +2195,14 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     }
 
     showExtractZipDialog?.let { file ->
-        AlertDialog(
-            onDismissRequest = dismissAndWipe,
-            title = { Text("Extract ZIP Archive", fontWeight = FontWeight.Bold, color = textPrimary) },
-            text = { Text("Do you want to extract the contents of '${file.name}' into the current folder?", fontSize = 13.sp, color = textPrimary) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val targetDir = File(uiState.currentPath)
-                        viewModel.extractZipArchive(File(file.path), targetDir)
-                        Toast.makeText(context, "Extracting ${file.name} to current directory...", Toast.LENGTH_SHORT).show()
-                        dismissAndWipe()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
-                ) {
-                    Text("Extract All", color = Color.White)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = dismissAndWipe) { Text("Cancel", color = textMuted) }
+        ArchiveBrowserDialog(
+            file = file,
+            onDismiss = dismissAndWipe,
+            onExtractAll = {
+                val targetDir = File(uiState.currentPath)
+                viewModel.extractZipArchive(File(file.path), targetDir)
+                Toast.makeText(context, "Extracting ${file.name} to current directory...", Toast.LENGTH_SHORT).show()
+                dismissAndWipe()
             }
         )
     }
@@ -1886,6 +2724,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                     onClick = {
                         if (pinSetupInput.length == 4 && pinSetupInput == pinSetupConfirm) {
                             viewModel.saveVaultPin(pinSetupInput)
+                            cachedVaultPin = pinSetupInput
                             showPinSetupDialog = false
                             pinSetupInput = ""
                             pinSetupConfirm = ""
@@ -1907,47 +2746,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         )
     }
 
-    if (showPinUnlockDialog) {
-        AlertDialog(
-            onDismissRequest = { showPinUnlockDialog = false },
-            title = { Text("Unlock Private Vault", fontWeight = FontWeight.Bold, color = textPrimary) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter your 4-digit PIN to access encrypted files.", fontSize = 12.sp, color = textMuted)
-                    OutlinedTextField(
-                        value = pinUnlockInput,
-                        onValueChange = { if (it.length <= 4) pinUnlockInput = it },
-                        label = { Text("Enter PIN") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (viewModel.verifyVaultPin(pinUnlockInput)) {
-                            cachedVaultPin = pinUnlockInput
-                            showPinUnlockDialog = false
-                            pinUnlockInput = ""
-                            viewModel.loadVaultFiles()
-                            showVaultBrowserDialog = true
-                        } else {
-                            Toast.makeText(context, "Incorrect Vault PIN", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
-                ) {
-                    Text("Unlock", color = Color.White)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPinUnlockDialog = false }) { Text("Cancel", color = textMuted) }
-            }
-        )
-    }
+
 
     showMoveToVaultDialog?.let { file ->
         AlertDialog(
@@ -1989,74 +2788,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         )
     }
 
-    if (showVaultBrowserDialog) {
-        AlertDialog(
-            onDismissRequest = { showVaultBrowserDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = appBlue)
-                    Text("Private Vault (Encrypted)", fontWeight = FontWeight.Bold, color = textPrimary)
-                }
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-                    Text("Files inside are AES-256-GCM encrypted. Tap any file to decrypt and restore to storage.", fontSize = 11.sp, color = textMuted)
-                    Spacer(modifier = Modifier.height(10.dp))
 
-                    if (uiState.vaultFiles.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.LockOpen, contentDescription = null, tint = textMuted, modifier = Modifier.size(36.dp))
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text("Private Vault is empty", fontSize = 12.sp, color = textMuted)
-                            }
-                        }
-                    } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(uiState.vaultFiles) { vaultFile ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { previewVaultFile(vaultFile) },
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = cardColor)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(10.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                                            Icon(Icons.Default.Key, contentDescription = null, tint = appBlue, modifier = Modifier.size(20.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(vaultFile.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                Text(formatFileSize(vaultFile.size), fontSize = 10.sp, color = textMuted)
-                                            }
-                                        }
-
-                                        TextButton(onClick = { showRestoreVaultFileDialog = vaultFile }) {
-                                            Text("Decrypt", fontSize = 11.sp, color = appBlue, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showVaultBrowserDialog = false
-                        cachedVaultPin = ""
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
-                ) {
-                    Text("Close Vault", color = Color.White)
-                }
-            }
-        )
-    }
 
     showRestoreVaultFileDialog?.let { vaultFile ->
         AlertDialog(
@@ -2274,6 +3006,84 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 ) {
                     Text("Save File", color = Color.White)
                 }
+            }
+        )
+    }
+
+    if (showCreateFolderDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateFolderDialog = false },
+            title = { Text("Create New Folder", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = createFolderNameInput,
+                    onValueChange = { createFolderNameInput = it },
+                    label = { Text("Folder Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val name = createFolderNameInput.trim()
+                        if (name.isNotEmpty()) {
+                            viewModel.createFolder(uiState.currentPath, name) { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                if (success) {
+                                    showCreateFolderDialog = false
+                                }
+                            }
+                        } else {
+                            Toast.makeText(context, "Folder name cannot be empty", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
+                ) {
+                    Text("Create", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateFolderDialog = false }) { Text("Cancel", color = textMuted) }
+            }
+        )
+    }
+
+    if (showCreateFileDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateFileDialog = false },
+            title = { Text("Create New File", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = createFileNameInput,
+                    onValueChange = { createFileNameInput = it },
+                    label = { Text("File Name (e.g. note.txt)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val name = createFileNameInput.trim()
+                        if (name.isNotEmpty()) {
+                            viewModel.createNewFile(uiState.currentPath, name) { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                if (success) {
+                                    showCreateFileDialog = false
+                                }
+                            }
+                        } else {
+                            Toast.makeText(context, "File name cannot be empty", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appBlue)
+                ) {
+                    Text("Create", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateFileDialog = false }) { Text("Cancel", color = textMuted) }
             }
         )
     }

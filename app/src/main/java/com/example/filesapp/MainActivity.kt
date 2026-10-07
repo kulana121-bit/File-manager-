@@ -38,6 +38,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        try {
+            val currentPath = viewModel.uiState.value.currentPath
+            val pathFile = if (currentPath.isNotEmpty()) java.io.File(currentPath) else android.os.Environment.getExternalStorageDirectory()
+            viewModel.loadDirectory(pathFile)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun checkAndRequestPermissions() {
         val permissions = mutableListOf<String>()
         

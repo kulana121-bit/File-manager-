@@ -374,44 +374,104 @@ class StorageRepository(private val context: Context) {
     }
 
     /**
-     * Copies a real file in place.
+     * Copies a real file in place securely on a background thread.
+     * Implements collision safety to never truncate the source when copying onto itself.
      */
-    fun copyFileInPlace(file: File, targetDir: File): File? {
-        if (!file.exists()) return null
-        if (!targetDir.exists()) targetDir.mkdirs()
-        val destFile = File(targetDir, file.name)
-        return if (file.isDirectory) {
-            if (file.copyRecursively(destFile, overwrite = true)) destFile else null
-        } else {
-            file.copyTo(destFile, overwrite = true)
+    suspend fun copyFileInPlace(file: File, targetDir: File): File? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            if (!file.exists()) return@withContext null
+            if (!targetDir.exists()) targetDir.mkdirs()
+
+            var destFile = File(targetDir, file.name)
+            // If copying to the same exact folder and path, append _copy suffix to prevent critical truncation data loss
+            if (destFile.absolutePath == file.absolutePath) {
+                val baseName = file.nameWithoutExtension
+                val extension = file.extension
+                val suffix = if (extension.isNotEmpty()) ".$extension" else ""
+                var counter = 1
+                do {
+                    destFile = File(targetDir, "${baseName}_copy$counter$suffix")
+                    counter++
+                } while (destFile.exists())
+            }
+
+            if (file.isDirectory) {
+                if (file.copyRecursively(destFile, overwrite = true)) destFile else null
+            } else {
+                file.copyTo(destFile, overwrite = true)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 
     /**
-     * Permanently deletes a real file from storage.
+     * Permanently deletes a real file from storage securely on a background thread.
      */
-    fun deleteFileInPlace(file: File): Boolean {
-        return if (file.isDirectory) {
-            file.deleteRecursively()
-        } else {
-            file.delete()
+    suspend fun deleteFileInPlace(file: File): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            if (file.isDirectory) {
+                file.deleteRecursively()
+            } else {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 
     /**
-     * Renames a real file in place.
+     * Renames a real file in place securely on a background thread.
      */
-    fun renameFileInPlace(file: File, newName: String): File? {
-        val newFile = File(file.parentFile, newName)
-        return if (file.renameTo(newFile)) newFile else null
+    suspend fun renameFileInPlace(file: File, newName: String): File? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val newFile = File(file.parentFile, newName)
+            if (file.renameTo(newFile)) newFile else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     /**
-     * Moves a real file in place.
+     * Moves a real file in place securely on a background thread.
      */
-    fun moveFileInPlace(file: File, targetDir: File): File? {
-        if (!targetDir.exists()) targetDir.mkdirs()
-        val destFile = File(targetDir, file.name)
-        return if (file.renameTo(destFile)) destFile else null
+    suspend fun moveFileInPlace(file: File, targetDir: File): File? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            if (!targetDir.exists()) targetDir.mkdirs()
+            val destFile = File(targetDir, file.name)
+            if (file.renameTo(destFile)) destFile else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Creates a new folder in place on a background thread.
+     */
+    suspend fun createFolder(parentDir: File, name: String): File? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val folder = File(parentDir, name)
+            if (!folder.exists() && folder.mkdirs()) folder else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Creates an empty new file in place on a background thread.
+     */
+    suspend fun createNewFile(parentDir: File, name: String): File? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val file = File(parentDir, name)
+            if (!file.exists() && file.createNewFile()) file else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 }

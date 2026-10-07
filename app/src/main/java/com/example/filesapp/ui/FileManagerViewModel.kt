@@ -2,7 +2,9 @@ package com.example.filesapp.ui
 
 import android.app.Application
 import android.content.Context
+import android.os.Build
 import android.os.Environment
+import android.os.FileObserver
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.filesapp.data.*
@@ -33,6 +35,7 @@ data class FileManagerUiState(
     val showHiddenFiles: Boolean = false,
     val searchQuery: String = "",
     val activeCategory: String? = null,
+    val categoryFiles: List<AndroidFileModel> = emptyList(),
     val pinnedFolders: Set<String> = emptySet(),
     val starredFiles: Set<String> = emptySet(),
     val driveStatusMessage: String? = null
@@ -46,6 +49,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     val driveManager = GoogleDriveManager(application)
 
     private var signedInAccount: GoogleSignInAccount? = null
+    private var directoryObserver: FileObserver? = null
 
     private val _uiState = MutableStateFlow(
         FileManagerUiState(
@@ -64,6 +68,12 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadTrashItems()
         loadStorageBreakdown()
         checkLastSignedInAccount()
+        // Securely clean up any leftover decrypted preview files from previous sessions on startup
+        try {
+            File(application.cacheDir, "vault_previews").deleteRecursively()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun checkLastSignedInAccount() {
@@ -261,9 +271,23 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadDriveFiles()
     }
 
+    fun signOutGoogleDrive(onComplete: () -> Unit) {
+        driveManager.signOut {
+            signedInAccount = null
+            _uiState.value = _uiState.value.copy(
+                isDriveConnected = false,
+                driveUserEmail = null,
+                driveFiles = emptyList(),
+                driveStatusMessage = null
+            )
+            onComplete()
+        }
+    }
+
     fun loadDriveFiles() {
         val account = signedInAccount ?: return
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isScanning = true, driveStatusMessage = null)
             try {
                 val googleFiles = driveManager.fetchDriveFiles(account)
                 val mappedModels = googleFiles.map { gFile ->
@@ -277,9 +301,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                         isDirectory = gFile.mimeType == "application/vnd.google-apps.folder"
                     )
                 }
-                _uiState.value = _uiState.value.copy(driveFiles = mappedModels)
+                _uiState.value = _uiState.value.copy(driveFiles = mappedModels, isScanning = false)
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(driveStatusMessage = "Drive error: ${e.message}")
+                _uiState.value = _uiState.value.copy(driveStatusMessage = "Drive error: ${e.message}", isScanning = false)
             }
         }
     }
@@ -357,6 +381,50 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 realFolders = folders.sortedBy { it.name.lowercase() },
                 realFiles = files.sortedByDescending { it.dateModified }
             )
+            startWatchingDirectory(targetDir)
+        }
+    }
+
+    private fun startWatchingDirectory(dir: File) {
+        try {
+            directoryObserver?.stopWatching()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                directoryObserver = object : FileObserver(dir, ALL_EVENTS) {
+                    override fun onEvent(event: Int, path: String?) {
+                        val mask = event and ALL_EVENTS
+                        if (mask and (CREATE or DELETE or MODIFY or MOVED_FROM or MOVED_TO) != 0) {
+                            viewModelScope.launch {
+                                loadDirectory(dir)
+                            }
+                        }
+                    }
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                directoryObserver = object : FileObserver(dir.absolutePath, ALL_EVENTS) {
+                    override fun onEvent(event: Int, path: String?) {
+                        val mask = event and ALL_EVENTS
+                        if (mask and (CREATE or DELETE or MODIFY or MOVED_FROM or MOVED_TO) != 0) {
+                            viewModelScope.launch {
+                                loadDirectory(dir)
+                            }
+                        }
+                    }
+                }
+            }
+            directoryObserver?.startWatching()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            directoryObserver?.stopWatching()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -406,6 +474,60 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setCategoryFilter(category: String?) {
         _uiState.value = _uiState.value.copy(activeCategory = category)
+        if (category == null) {
+            _uiState.value = _uiState.value.copy(categoryFiles = emptyList())
+        } else {
+            loadCategoryFilesRecursive(category)
+        }
+    }
+
+    private fun loadCategoryFilesRecursive(category: String) {
+        _uiState.value = _uiState.value.copy(isScanning = true)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val root = Environment.getExternalStorageDirectory()
+            val result = mutableListOf<AndroidFileModel>()
+            
+            fun scan(dir: File) {
+                val files = dir.listFiles() ?: return
+                for (f in files) {
+                    if (f.name.startsWith(".")) continue
+                    if (f.isDirectory) {
+                        scan(f)
+                    } else {
+                        val extension = f.extension.lowercase()
+                        val mime = getMimeType(f)
+                        val matches = when (category) {
+                            "images" -> mime.startsWith("image/")
+                            "docs" -> mime.contains("pdf") || mime.startsWith("text/") || extension in listOf("doc", "docx", "xls", "xlsx", "ppt", "pptx")
+                            "audio" -> mime.startsWith("audio/")
+                            "apks" -> extension == "apk" || mime.contains("android.package-archive")
+                            "archives" -> extension in listOf("zip", "rar", "7z", "tar", "gz")
+                            else -> true
+                        }
+                        if (matches) {
+                            result.add(
+                                AndroidFileModel(
+                                    id = f.absolutePath,
+                                    name = f.name,
+                                    path = f.absolutePath,
+                                    size = f.length(),
+                                    mimeType = mime,
+                                    dateModified = f.lastModified(),
+                                    isDirectory = false,
+                                    isStarred = _uiState.value.starredFiles.contains(f.absolutePath)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            scan(root)
+            
+            _uiState.value = _uiState.value.copy(
+                categoryFiles = result.sortedByDescending { it.dateModified },
+                isScanning = false
+            )
+        }
     }
 
     fun setCurrentPath(path: String) {
@@ -488,6 +610,33 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                 onResult(true, "Backed up ${appInfo.name} APK to Downloads")
             } else {
                 onResult(false, "Source APK missing at ${appInfo.apkPath}")
+            }
+        }
+    }
+
+    fun createFolder(parentDirPath: String, name: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val parentDir = File(parentDirPath)
+            val created = repository.createFolder(parentDir, name)
+            if (created != null) {
+                loadDirectory(parentDir)
+                onResult(true, "Folder '$name' created successfully")
+            } else {
+                onResult(false, "Failed to create folder. It might already exist.")
+            }
+        }
+    }
+
+    fun createNewFile(parentDirPath: String, name: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val parentDir = File(parentDirPath)
+            val finalName = if (!name.contains(".")) "$name.txt" else name
+            val created = repository.createNewFile(parentDir, finalName)
+            if (created != null) {
+                loadDirectory(parentDir)
+                onResult(true, "File '$finalName' created successfully")
+            } else {
+                onResult(false, "Failed to create file. It might already exist.")
             }
         }
     }
