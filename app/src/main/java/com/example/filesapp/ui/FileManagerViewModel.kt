@@ -662,6 +662,28 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /**
+     * Downloads a Drive file to cache for preview, then returns the local file.
+     */
+    fun previewDriveFile(driveFileId: String, fileName: String, onResult: (File?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cacheDir = File(getApplication<Application>().cacheDir, "drive_previews")
+                cacheDir.mkdirs()
+                val targetFile = File(cacheDir, fileName)
+                val result = driveManager.downloadFile(driveFileId, targetFile)
+                withContext(Dispatchers.Main) {
+                    result.fold(
+                        onSuccess = { onResult(targetFile) },
+                        onFailure = { onResult(null) }
+                    )
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { onResult(null) }
+            }
+        }
+    }
+
     fun loadDirectory(directory: File) {
         viewModelScope.launch {
             val targetDir = if (directory.exists() && directory.isDirectory) directory else Environment.getExternalStorageDirectory()
