@@ -40,9 +40,10 @@ object ArchiveManager {
 
     /**
      * Lists all archive entries in memory without extracting to disk.
+     * @param password Optional password for encrypted archives.
      */
-    fun listEntries(archiveFile: File): List<ArchiveEntryModel> {
-        return ArchiveEngine.listEntries(archiveFile).map { entry ->
+    fun listEntries(archiveFile: File, password: String? = null): List<ArchiveEntryModel> {
+        return ArchiveEngine.listEntries(archiveFile, password).map { entry ->
             ArchiveEntryModel(
                 name = entry.path,
                 isDirectory = entry.isDirectory,
@@ -51,6 +52,13 @@ object ArchiveManager {
                 timeModified = entry.lastModified
             )
         }
+    }
+
+    /**
+     * Checks if an archive is password-protected.
+     */
+    fun isPasswordProtected(archiveFile: File): Boolean {
+        return ArchiveEngine.isPasswordProtected(archiveFile)
     }
 
     /**
@@ -73,11 +81,17 @@ object ArchiveManager {
     /**
      * Extracts all files in the archive to destDir with Zip Slip, symlink, and decompression bomb protection.
      */
-    fun extractAll(archiveFile: File, destDir: File, onProgress: (Float, String) -> Unit = { _, _ -> }): Boolean {
+    fun extractAll(
+        archiveFile: File,
+        destDir: File,
+        password: String? = null,
+        onProgress: (Float, String) -> Unit = { _, _ -> }
+    ): Boolean {
         return ArchiveEngine.extract(
             archiveFile = archiveFile,
             destDir = destDir,
             selectedPaths = null,
+            password = password,
             onProgress = onProgress
         )
     }
