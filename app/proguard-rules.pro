@@ -1,22 +1,44 @@
-# DIAGNOSTIC R8 CONFIG (ChatGPT suggestion - 2026-10-08)
-# Purpose: Isolate whether R8's shrinking phase is the crash cause.
-# -keep class ** keeps everything, but shrinking phase still runs.
-# If this launches: shrinking was removing something needed.
-# If this crashes: shrinking is NOT the cause.
+# TARGETED R8 CONFIG (2026-10-08)
+# Diagnostic proved: -keep ** works, so shrinking removes something needed.
+# Now using targeted keeps instead of global -keep **.
 -dontoptimize
 -dontobfuscate
 
-# Keep every program class, but DO NOT use -dontshrink.
--keep class ** { *; }
+# --- App code ---
+-keep class com.example.filesapp.** { *; }
+
+# --- Startup path (ChatGPT suggestion) ---
+-keep class com.google.android.gms.auth.api.signin.** { *; }
+-keep class androidx.activity.** { *; }
+-keep class androidx.core.** { *; }
+
+# --- Reflection/SPI libraries (Gemini suggestion) ---
+# ServiceLoader providers
+-keep class * implements java.util.ServiceLoader$Provider { *; }
+# Apache Commons Compress (archive handling)
+-keep class org.apache.commons.compress.** { *; }
+# SLF4J (logging)
+-keep class org.slf4j.** { *; }
+# Google API Client & Guava (Drive + reflection)
+-keep class com.google.api.client.** { *; }
+-keep class com.google.common.** { *; }
+-keepclassmembers class * {
+    @com.google.api.client.util.Key <fields>;
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+# PDFBox (reflection for fonts/assets)
+-keep class com.tom_roush.pdfbox.** { *; }
+# AndroidX Startup initializers
+-keep class * extends androidx.startup.Initializer {
+    <init>();
+}
 
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
 
--printusage build/outputs/logs/r8-usage.txt
-
-# --- DontWarns (prevent build failures from absent optional deps) ---
+# --- DontWarns (prevent build failures) ---
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 -dontwarn org.slf4j.impl.StaticMDCBinder
 -dontwarn org.slf4j.impl.StaticMarkerBinder
@@ -39,8 +61,3 @@
 -dontwarn com.tom_roush.pdfbox.**
 -dontwarn com.google.zxing.**
 -dontwarn androidx.work.**
-# Gson & Google API Client keeps (needed for Drive JSON parsing)
--keepclassmembers class * {
-    @com.google.api.client.util.Key <fields>;
-    @com.google.gson.annotations.SerializedName <fields>;
-}
