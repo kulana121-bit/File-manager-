@@ -1,55 +1,25 @@
-# TARGETED R8 CONFIG (2026-10-08)
-# Diagnostic proved: -keep ** works, so shrinking removes something needed.
-# Now using targeted keeps instead of global -keep **.
+# WORKING R8 CONFIG (2026-10-08)
+# This is the proven working configuration from release-21-1.
+# -keep ** keeps all classes, R8 shrinking still runs but removes nothing critical.
+# Size: 61MB. Works reliably. Size optimization deferred to later.
 -dontoptimize
 -dontobfuscate
 
-# --- App code ---
--keep class com.example.filesapp.** { *; }
-# Keep the Application class (crash trap must survive R8)
--keep class com.example.filesapp.FilesApp { *; }
-
-# --- Startup path (ChatGPT suggestion) ---
--keep class com.google.android.gms.auth.api.signin.** { *; }
--keep class androidx.activity.** { *; }
--keep class androidx.core.** { *; }
-
-# --- Reflection/SPI libraries (Gemini suggestion) ---
-# ServiceLoader providers
--keep class * implements java.util.ServiceLoader$Provider { *; }
-# Apache Commons Compress (archive handling)
--keep class org.apache.commons.compress.** { *; }
-# SLF4J (logging)
--keep class org.slf4j.** { *; }
-# Google API Client & Guava (Drive + reflection)
--keep class com.google.api.client.** { *; }
--keep class com.google.common.** { *; }
--keepclassmembers class * {
-    @com.google.api.client.util.Key <fields>;
-    @com.google.gson.annotations.SerializedName <fields>;
-}
-# PDFBox (reflection for fonts/assets)
--keep class com.tom_roush.pdfbox.** { *; }
-# AndroidX Startup initializers
--keep class * extends androidx.startup.Initializer {
-    <init>();
-}
-# --- Additional libs (were only dontwarn, now kept) ---
--keep class coil.** { *; }
--keep class com.google.zxing.** { *; }
--keep class org.apache.commons.net.** { *; }
--keep class kotlinx.** { *; }
--keep class androidx.** { *; }
--keep class com.github.junrar.** { *; }
--keep class org.tukaani.xz.** { *; }
--keep class org.apache.commons.lang3.** { *; }
+# Keep every program class (proven to work)
+-keep class ** { *; }
 
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
 
-# --- DontWarns (prevent build failures) ---
+# Gson & Google API Client keeps (needed for Drive JSON parsing)
+-keepclassmembers class * {
+    @com.google.api.client.util.Key <fields>;
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+
+# --- DontWarns (prevent build failures from absent optional deps) ---
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 -dontwarn org.slf4j.impl.StaticMDCBinder
 -dontwarn org.slf4j.impl.StaticMarkerBinder
