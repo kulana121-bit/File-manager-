@@ -11,6 +11,7 @@ import com.example.filesapp.data.*
 import com.example.filesapp.domain.analyzer.*
 import com.example.filesapp.domain.archive.*
 import com.example.filesapp.domain.backup.*
+import com.example.filesapp.domain.nearby.NearbyShareManager
 import com.example.filesapp.domain.operations.*
 import com.example.filesapp.domain.search.*
 import com.example.filesapp.domain.storage.*
@@ -1017,6 +1018,71 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
      */
     fun isArchivePasswordProtected(archiveFile: File): Boolean {
         return archiveEngine.isPasswordProtected(archiveFile)
+    }
+
+    // ===== Nearby Share (Google Files parity) =====
+    val nearbyShareManager by lazy { NearbyShareManager(getApplication()) }
+
+    private val _nearbyDevices = MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    val nearbyDevices: StateFlow<List<Pair<String, String>>> = _nearbyDevices.asStateFlow()
+
+    private val _nearbyLogs = MutableStateFlow<List<String>>(emptyList())
+    val nearbyLogs: StateFlow<List<String>> = _nearbyLogs.asStateFlow()
+
+    private val _nearbyConnected = MutableStateFlow<Map<String, String>>(emptyMap())
+    val nearbyConnected: StateFlow<Map<String, String>> = _nearbyConnected.asStateFlow()
+
+    fun initNearbyShare() {
+        val mgr = nearbyShareManager
+        mgr.onEndpointFound = { id, name ->
+            _nearbyDevices.value = _nearbyDevices.value.filter { it.first != id } + (id to name)
+        }
+        mgr.onEndpointLost = { id ->
+            _nearbyDevices.value = _nearbyDevices.value.filter { it.first != id }
+        }
+        mgr.onConnectionRequest = { id, name, accept ->
+            // Auto-accept for simplicity; UI can override
+            accept(true)
+        }
+        mgr.onConnected = { id, name ->
+            _nearbyConnected.value = _nearbyConnected.value + (id to name)
+        }
+        mgr.onDisconnected = { id ->
+            _nearbyConnected.value = _nearbyConnected.value - id
+        }
+        mgr.onFileReceived = { file, from ->
+            _uiState.value = _uiState.value.copy(
+                driveStatusMessage = "Received ${file.name} from $from"
+            )
+            loadDirectory(File(_uiState.value.currentPath))
+        }
+        mgr.onLog = { log ->
+            _nearbyLogs.value = (_nearbyLogs.value + log).takeLast(30)
+        }
+    }
+
+    fun startNearbyAdvertising(deviceName: String) {
+        initNearbyShare()
+        nearbyShareManager.startAdvertising(deviceName)
+    }
+
+    fun startNearbyDiscovery() {
+        initNearbyShare()
+        nearbyShareManager.startDiscovery()
+    }
+
+    fun stopNearby() {
+        nearbyShareManager.stopAll()
+        _nearbyDevices.value = emptyList()
+        _nearbyConnected.value = emptyMap()
+    }
+
+    fun connectNearby(endpointId: String, deviceName: String) {
+        nearbyShareManager.connectTo(endpointId, deviceName)
+    }
+
+    fun sendFileNearby(endpointId: String, file: File) {
+        nearbyShareManager.sendFile(endpointId, file)
     }
 
     fun cleanEmptyFolders(onResult: (Int) -> Unit) {
