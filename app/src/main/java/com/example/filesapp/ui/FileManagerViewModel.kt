@@ -91,23 +91,27 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     private val prefs = application.getSharedPreferences("files_app_prefs", Context.MODE_PRIVATE)
     private val repository = StorageRepository(application)
     private val vaultManager = PrivateVaultManager(application)
-    val driveManager = GoogleDriveManager(application)
-    val storageRegistry = StorageProviderRegistry(application)
-    val fileOpsEngine = FileOperationsEngine(application, storageRegistry)
+    // DIAGNOSTIC: Lazy init (ChatGPT suggestion) - isolates startup crash.
+    // If R8 release launches with lazy managers, the crash was in eager init.
+    val driveManager by lazy { GoogleDriveManager(application) }
+    val storageRegistry by lazy { StorageProviderRegistry(application) }
+    val fileOpsEngine by lazy { FileOperationsEngine(application, storageRegistry) }
     val searchEngine = SearchEngine()
-    val storageAnalyzerEngine = StorageAnalyzerEngine(application)
+    val storageAnalyzerEngine by lazy { StorageAnalyzerEngine(application) }
     val archiveEngine = ArchiveEngine
-    val networkStorageManager = NetworkStorageManager(application)
-    val wifiManager = WifiTransferManager(
-        context = application,
-        rootDirProvider = { Environment.getExternalStorageDirectory() },
-        onLogMessage = { log ->
-            val updated = (_uiState.value.wifiServerLogs + log).takeLast(20)
-            _uiState.value = _uiState.value.copy(wifiServerLogs = updated)
-        }
-    )
-    val imageToolsManager = ImageToolsManager(application)
-    val backupEngine = BackupEngine(application, driveManager, networkStorageManager)
+    val networkStorageManager by lazy { NetworkStorageManager(application) }
+    val wifiManager by lazy {
+        WifiTransferManager(
+            context = application,
+            rootDirProvider = { Environment.getExternalStorageDirectory() },
+            onLogMessage = { log ->
+                val updated = (_uiState.value.wifiServerLogs + log).takeLast(20)
+                _uiState.value = _uiState.value.copy(wifiServerLogs = updated)
+            }
+        )
+    }
+    val imageToolsManager by lazy { ImageToolsManager(application) }
+    val backupEngine by lazy { BackupEngine(application, driveManager, networkStorageManager) }
     private var activeTransferController: TransferOperationController? = null
 
     private var signedInAccount: GoogleSignInAccount? = null
@@ -129,7 +133,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadVaultFiles()
         loadTrashItems()
         loadStorageBreakdown()
-        checkLastSignedInAccount()
+        // DIAGNOSTIC: Temporarily disabled (ChatGPT suggestion).
+        // If R8 release launches without this, Google Sign-In graph is the culprit.
+        // checkLastSignedInAccount()
         // Securely clean up any leftover decrypted preview files from previous sessions on startup
         try {
             File(application.cacheDir, "vault_previews").deleteRecursively()
