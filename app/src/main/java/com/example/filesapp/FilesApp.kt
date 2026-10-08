@@ -14,11 +14,18 @@ class FilesApp : Application() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                val crashFile = File(filesDir, "r8_crash.txt")
-                crashFile.writeText(
-                    "Thread: ${thread.name}\n" +
-                    throwable.stackTraceToString()
-                )
+                val crashText = "Thread: ${thread.name}\n" + throwable.stackTraceToString()
+                // Internal (always writable)
+                try {
+                    File(filesDir, "r8_crash.txt").writeText(crashText)
+                } catch (_: Exception) { }
+                // External (user-accessible via file manager, no permission needed
+                // for app's own external files dir)
+                try {
+                    getExternalFilesDir(null)?.let { dir ->
+                        File(dir, "r8_crash.txt").writeText(crashText)
+                    }
+                } catch (_: Exception) { }
             } catch (_: Exception) {
                 // If we can't write the file, just crash normally
             }
