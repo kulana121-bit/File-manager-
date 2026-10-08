@@ -145,6 +145,11 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.26.0")
     implementation("org.tukaani:xz:1.9")
     implementation("com.github.junrar:junrar:7.5.5")
+    // Password-protected ZIP (AES + ZipCrypto) - ZArchiver parity
+    implementation("net.lingala.zip4j:zip4j:2.11.5")
+
+    // Nearby Share (P2P file sharing) - Google Files parity
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
 
     // PDF text search support
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
