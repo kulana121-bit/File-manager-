@@ -129,6 +129,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var showCreateArchiveDialog by remember { mutableStateOf<List<AndroidFileModel>?>(null) }
     var showNearbyShareDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showDriveBrowserDialog by remember { mutableStateOf(false) }
+    var showThemeColorDialog by remember { mutableStateOf(false) }
     var showOptionsMenuDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showMoveFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -327,7 +328,16 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
     // Dynamic Style Colors - Warm Cream & Liquid Glass Palette matching the app icon
     val isDark = uiState.isDarkMode
-    val appBlue = if (isDark) Color(0xFFC48E77) else Color(0xFF9E6B55) // Warm Taupe / Caramel Accent
+    // Custom theme color (user selectable, soft tones) - lightens in dark mode for visibility
+    val customAccent = Color(uiState.themeColor)
+    val appBlue = if (isDark) customAccent.copy(alpha = 1f).let {
+        // Lighten the color for dark mode visibility
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(android.graphics.Color.argb(255, (it.red * 255).toInt(), (it.green * 255).toInt(), (it.blue * 255).toInt()), hsv)
+        hsv[2] = minOf(1f, hsv[2] + 0.25f) // Increase brightness
+        hsv[1] = maxOf(0f, hsv[1] - 0.1f) // Slightly reduce saturation
+        Color(android.graphics.Color.HSVToColor(hsv))
+    } else customAccent
     val appGreen = if (isDark) Color(0xFF86A873) else Color(0xFF5E8B49) // Muted sage green
     val appRed = if (isDark) Color(0xFFD47366) else Color(0xFFB85347) // Soft terracotta red
     val appAmber = if (isDark) Color(0xFFDCA766) else Color(0xFFC68A40) // Warm honey amber
@@ -590,33 +600,56 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             }
         },
         bottomBar = {
-            // iOS Liquid Glass Floating Pill Bottom Bar (Translucent glass with delicate highlight border)
-            Surface(
+            // True Liquid Glass Floating Pill - Transparent with reflection (API 29 safe, no RenderEffect)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 18.dp, vertical = 12.dp)
                     .shadow(
-                        elevation = if (isDark) 10.dp else 14.dp,
+                        elevation = if (isDark) 8.dp else 12.dp,
                         shape = RoundedCornerShape(32.dp),
-                        ambientColor = if (isDark) Color.Black.copy(alpha = 0.5f) else Color(0xFF6B584D).copy(alpha = 0.10f),
-                        spotColor = if (isDark) Color.Black.copy(alpha = 0.65f) else Color(0xFF6B584D).copy(alpha = 0.14f)
-                    ),
-                shape = RoundedCornerShape(32.dp),
-                color = if (isDark) Color(0xFF24211D).copy(alpha = 0.82f) else Color(0xFFFFFFFF).copy(alpha = 0.85f),
-                border = BorderStroke(
-                    width = 1.dp,
-                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                        colors = if (isDark) listOf(
-                            Color.White.copy(alpha = 0.25f),
-                            Color(0xFF38332D).copy(alpha = 0.6f),
-                            Color.White.copy(alpha = 0.08f)
-                        ) else listOf(
-                            Color.White.copy(alpha = 0.90f),
-                            Color(0xFFEADBCE).copy(alpha = 0.6f),
-                            Color.White.copy(alpha = 0.45f)
+                        ambientColor = if (isDark) Color.Black.copy(alpha = 0.4f) else Color(0xFF6B584D).copy(alpha = 0.08f),
+                        spotColor = if (isDark) Color.Black.copy(alpha = 0.5f) else Color(0xFF6B584D).copy(alpha = 0.12f)
+                    )
+                    .clip(RoundedCornerShape(32.dp))
+                    // Transparent glass base - much lower alpha for true see-through
+                    .background(
+                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = if (isDark) listOf(
+                                Color(0xFF24211D).copy(alpha = 0.45f),
+                                Color(0xFF24211D).copy(alpha = 0.55f)
+                            ) else listOf(
+                                Color.White.copy(alpha = 0.45f),
+                                Color(0xFFF7F3ED).copy(alpha = 0.55f)
+                            )
                         )
                     )
-                )
+                    // Glass reflection highlight at top
+                    .background(
+                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = if (isDark) 0.12f else 0.35f),
+                                Color.Transparent
+                            ),
+                            startY = 0f,
+                            endY = 80f
+                        )
+                    )
+                    .border(
+                        width = 1.dp,
+                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = if (isDark) listOf(
+                                Color.White.copy(alpha = 0.30f),
+                                Color(0xFF38332D).copy(alpha = 0.4f),
+                                Color.White.copy(alpha = 0.10f)
+                            ) else listOf(
+                                Color.White.copy(alpha = 0.95f),
+                                Color(0xFFEADBCE).copy(alpha = 0.5f),
+                                Color.White.copy(alpha = 0.50f)
+                            )
+                        ),
+                        shape = RoundedCornerShape(32.dp)
+                    )
             ) {
                 Row(
                     modifier = Modifier
@@ -2619,6 +2652,42 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
                                     HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = separatorColor)
 
+                                    // Theme Color Row - Soft tone color picker
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .clickable { showThemeColorDialog = true }
+                                            .padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                            Box(
+                                                modifier = Modifier.size(42.dp).clip(CircleShape).background(appBlue),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Palette,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text("Theme Color", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text("Soft pastel accent colors", fontSize = 11.sp, color = textMuted)
+                                            }
+                                        }
+                                        // Current color preview
+                                        Box(
+                                            modifier = Modifier.size(32.dp).clip(CircleShape).background(appBlue)
+                                                .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                                        )
+                                    }
+
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = separatorColor)
+
                                     // Duplicate Finder Row
                                     Row(
                                         modifier = Modifier
@@ -4426,6 +4495,107 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showCreateFileDialog = false }) { Text("Cancel", color = textMuted) }
+            }
+        )
+    }
+
+    // Theme Color Picker Dialog - Soft pastel tones
+    if (showThemeColorDialog) {
+        val softColors = listOf(
+            0xFF9E6B55 to "Warm Taupe",
+            0xFFE8B4B8 to "Soft Rose",
+            0xFFF4C2A0 to "Soft Peach",
+            0xFFD4B8E8 to "Soft Lavender",
+            0xFFB8E8D4 to "Soft Mint",
+            0xFFB8D4E8 to "Soft Sky",
+            0xFFF4E8A0 to "Soft Lemon",
+            0xFFC8E8B8 to "Soft Sage",
+            0xFFE8C8D8 to "Soft Pink",
+            0xFFD8C8E8 to "Soft Violet",
+            0xFFB8E0E8 to "Soft Teal",
+            0xFFF0D8B8 to "Soft Apricot"
+        )
+        AlertDialog(
+            onDismissRequest = { showThemeColorDialog = false },
+            title = { Text("Theme Color", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Choose a soft tone for your app",
+                        fontSize = 13.sp,
+                        color = textMuted
+                    )
+                    // Color grid
+                    val columns = 4
+                    val rows = (softColors.size + columns - 1) / columns
+                    for (row in 0 until rows) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            for (col in 0 until columns) {
+                                val index = row * columns + col
+                                if (index < softColors.size) {
+                                    val (colorValue, name) = softColors[index]
+                                    val isSelected = uiState.themeColor == colorValue
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .clickable {
+                                                viewModel.setThemeColor(colorValue)
+                                                showThemeColorDialog = false
+                                                Toast.makeText(context, "Theme: $name", Toast.LENGTH_SHORT).show()
+                                            }
+                                            .padding(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(56.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(colorValue))
+                                                .border(
+                                                    width = if (isSelected) 3.dp else 1.dp,
+                                                    color = if (isSelected) appBlue else Color.Gray.copy(alpha = 0.3f),
+                                                    shape = CircleShape
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isSelected) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = "Selected",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            name,
+                                            fontSize = 10.sp,
+                                            color = textMuted,
+                                            maxLines = 1
+                                        )
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.size(72.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeColorDialog = false }) {
+                    Text("Close", color = appBlue, fontWeight = FontWeight.Bold)
+                }
             }
         )
     }
