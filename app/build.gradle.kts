@@ -56,10 +56,11 @@ android {
             signingConfig = signingConfigs.getByName("debugConfig")
         }
         release {
-            // NUCLEAR TEST: R8 fully disabled to isolate the launch crash.
-            // If this APK works, R8 is definitively the culprit.
-            // If it still crashes, the cause is NOT R8.
-            isMinifyEnabled = false
+            // SAFE R8 MODE: minification ON for size, but obfuscation
+            // (renaming) and optimization disabled via proguard-rules.pro.
+            // The nuclear test proved R8 was the crash culprit; this is the
+            // middle ground: smaller APK, working app.
+            isMinifyEnabled = true
             // Resource shrinking disabled: it was stripping resources and
             // crashing the app on launch. Re-enable only after verifying.
             isShrinkResources = false
