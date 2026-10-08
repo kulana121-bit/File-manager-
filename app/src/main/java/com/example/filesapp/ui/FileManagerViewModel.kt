@@ -959,12 +959,17 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         zipName: String,
         targetDir: File,
         level: CompressionLevel = CompressionLevel.NORMAL,
+        password: String? = null,
         onResult: ((Boolean) -> Unit)? = null
     ) {
         viewModelScope.launch {
             val targetFile = File(targetDir, if (zipName.endsWith(".zip")) zipName else "$zipName.zip")
             val success = withContext(Dispatchers.IO) {
-                archiveEngine.createZipArchive(filesToZip, targetFile, level)
+                if (password != null) {
+                    archiveEngine.createEncryptedZipArchive(filesToZip, targetFile, password, level)
+                } else {
+                    archiveEngine.createZipArchive(filesToZip, targetFile, level)
+                }
             }
             loadDirectory(File(_uiState.value.currentPath))
             loadStorageBreakdown()
@@ -994,16 +999,24 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         zipFile: File,
         targetDir: File,
         selectedPaths: Set<String>? = null,
+        password: String? = null,
         onResult: ((Boolean) -> Unit)? = null
     ) {
         viewModelScope.launch {
             val success = withContext(Dispatchers.IO) {
-                archiveEngine.extract(zipFile, targetDir, selectedPaths)
+                archiveEngine.extract(zipFile, targetDir, selectedPaths, password)
             }
             loadDirectory(File(_uiState.value.currentPath))
             loadStorageBreakdown()
             onResult?.invoke(success)
         }
+    }
+
+    /**
+     * Checks if an archive is password-protected.
+     */
+    fun isArchivePasswordProtected(archiveFile: File): Boolean {
+        return archiveEngine.isPasswordProtected(archiveFile)
     }
 
     fun cleanEmptyFolders(onResult: (Int) -> Unit) {
