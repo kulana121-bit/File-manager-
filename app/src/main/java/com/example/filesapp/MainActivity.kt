@@ -8,7 +8,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.filesapp.ui.FileManagerViewModel
 import com.example.filesapp.ui.MainScreen
 import com.example.filesapp.ui.theme.FilesAppTheme
@@ -32,7 +34,10 @@ class MainActivity : ComponentActivity() {
         checkAndRequestPermissions()
 
         setContent {
-            FilesAppTheme {
+            // Observe dark mode from ViewModel to keep MaterialTheme in sync
+            // (fixes white dialogs in dark mode)
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            FilesAppTheme(darkTheme = uiState.isDarkMode) {
                 MainScreen(viewModel = viewModel)
             }
         }
