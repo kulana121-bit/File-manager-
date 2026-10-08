@@ -56,13 +56,11 @@ android {
             signingConfig = signingConfigs.getByName("debugConfig")
         }
         release {
-            // R8 FULLY DISABLED - FINAL DECISION (2026-10-08).
-            // Extensive testing proved R8 is fundamentally incompatible:
-            // - With shrinking: app crashes on launch (release-10-1, 14-1)
-            // - Without shrinking: R8 itself crashes with NPE (internal bug)
-            // The 61MB APK works reliably. Size is acceptable for a
-            // full-featured file manager.
-            isMinifyEnabled = false
+            // DIAGNOSTIC R8 CONFIG (ChatGPT suggestion - 2026-10-08).
+            // R8 ON with -keep ** (keeps all classes, shrinking still runs).
+            // If this launches: shrinking was removing something needed.
+            // If this crashes: shrinking is NOT the cause.
+            isMinifyEnabled = true
             // Resource shrinking disabled: it was stripping resources and
             // crashing the app on launch. Re-enable only after verifying.
             isShrinkResources = false
