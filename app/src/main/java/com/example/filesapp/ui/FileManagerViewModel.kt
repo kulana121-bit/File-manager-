@@ -40,6 +40,7 @@ data class FileManagerUiState(
     val driveUserEmail: String? = null,
     val driveFiles: List<AndroidFileModel> = emptyList(),
     val isDarkMode: Boolean = false,
+    val themeColor: Long = 0xFF9E6B55, // Custom accent color (soft tone)
     val isGridView: Boolean = false,
     val showHiddenFiles: Boolean = false,
     val searchQuery: String = "",
@@ -123,6 +124,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             starredFiles = prefs.getStringSet("starred_files", null)?.toSet() ?: emptySet(),
             pinnedFolders = prefs.getStringSet("pinned_folders", null)?.toSet() ?: emptySet(),
             isDarkMode = prefs.getBoolean("is_dark_mode", false),
+            themeColor = prefs.getLong("theme_color", 0xFF9E6B55),
             isGridView = prefs.getBoolean("is_grid_view", false)
         )
     )
@@ -797,6 +799,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         val newMode = !_uiState.value.isDarkMode
         _uiState.value = _uiState.value.copy(isDarkMode = newMode)
         prefs.edit().putBoolean("is_dark_mode", newMode).apply()
+    }
+
+    fun setThemeColor(color: Long) {
+        _uiState.value = _uiState.value.copy(themeColor = color)
+        prefs.edit().putLong("theme_color", color).apply()
     }
 
     fun toggleGridView() {
