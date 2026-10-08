@@ -639,7 +639,31 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 .weight(1f)
                                 .height(48.dp)
                                 .clip(CircleShape)
-                                .background(if (isSelected) appBlue.copy(alpha = if (isDark) 0.18f else 0.12f) else Color.Transparent)
+                                .background(
+                                    if (isSelected) {
+                                        // Calculator-style liquid glass selection bubble
+                                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            colors = listOf(
+                                                appBlue.copy(alpha = if (isDark) 0.28f else 0.22f),
+                                                appBlue.copy(alpha = if (isDark) 0.12f else 0.08f)
+                                            )
+                                        )
+                                    } else {
+                                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            colors = listOf(Color.Transparent, Color.Transparent)
+                                        )
+                                    }
+                                )
+                                .border(
+                                    width = if (isSelected) 1.dp else 0.dp,
+                                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = if (isDark) 0.25f else 0.6f),
+                                            appBlue.copy(alpha = 0.1f)
+                                        )
+                                    ),
+                                    shape = CircleShape
+                                )
                                 .bounceClick(0.92f)
                                 .clickable {
                                     activeBottomNav = navKey
@@ -3706,6 +3730,29 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                         .clickable {
                                             if (driveFile.isDirectory) {
                                                 viewModel.navigateDriveFolder(driveFile.id, driveFile.name)
+                                            } else {
+                                                // Tap file = instant preview (like real Google Drive)
+                                                Toast.makeText(context, "Loading preview...", Toast.LENGTH_SHORT).show()
+                                                viewModel.previewDriveFile(driveFile.id, driveFile.name) { localFile ->
+                                                    if (localFile != null) {
+                                                        try {
+                                                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                                                context,
+                                                                "com.example.filesapp.fileprovider",
+                                                                localFile
+                                                            )
+                                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                                                setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+                                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                            }
+                                                            context.startActivity(android.content.Intent.createChooser(intent, "Open with"))
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, "Cannot preview: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    } else {
+                                                        Toast.makeText(context, "Preview failed", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
                                             }
                                         },
                                     shape = RoundedCornerShape(18.dp),
