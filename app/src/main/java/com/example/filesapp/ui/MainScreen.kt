@@ -4032,14 +4032,16 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             defaultName = defaultName,
             targetDirectory = targetDir,
             onDismiss = { showCreateArchiveDialog = null },
-            onCreateArchive = { format, name, level ->
+            onCreateArchive = { format, name, level, password ->
                 if (format == com.example.filesapp.domain.archive.ArchiveFormat.SEVEN_Z) {
                     viewModel.create7zArchive(fileObjs, name, targetDir, level) { success ->
                         Toast.makeText(context, if (success) "Created '$name.7z'" else "Failed to create 7Z archive", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    viewModel.createZipArchive(fileObjs, name, targetDir, level) { success ->
-                        Toast.makeText(context, if (success) "Created '$name.zip'" else "Failed to create ZIP archive", Toast.LENGTH_SHORT).show()
+                    viewModel.createZipArchive(fileObjs, name, targetDir, level, password) { success ->
+                        val msg = if (success) "Created '$name.zip'${if (password != null) " (encrypted)" else ""}"
+                                  else "Failed to create ZIP archive"
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     }
                 }
                 showCreateArchiveDialog = null
