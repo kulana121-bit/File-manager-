@@ -20,6 +20,8 @@
 }
 
 # --- DontWarns (prevent build failures from absent optional deps) ---
+-dontwarn com.google.android.gms.nearby.**
+-keep class com.google.android.gms.nearby.** { *; }
 -dontwarn net.lingala.zip4j.**
 -keep class net.lingala.zip4j.** { *; }
 -dontwarn org.slf4j.impl.StaticLoggerBinder
