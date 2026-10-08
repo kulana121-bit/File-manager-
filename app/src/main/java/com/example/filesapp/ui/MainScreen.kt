@@ -125,6 +125,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var showBackupEngineDialog by remember { mutableStateOf(false) }
     var showImageToolsDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showCreateArchiveDialog by remember { mutableStateOf<List<AndroidFileModel>?>(null) }
+    var showNearbyShareDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showDriveBrowserDialog by remember { mutableStateOf(false) }
     var showOptionsMenuDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -3227,6 +3228,21 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         }
                     }
 
+                    // Nearby Share
+                    TextButton(
+                        onClick = {
+                            showOptionsMenuDialog = null
+                            showNearbyShareDialog = file
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Devices, contentDescription = null, tint = appBlue)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Nearby Share...", color = textPrimary, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
                     val isArchiveFile = file.name.endsWith(".zip", true) ||
                             file.name.endsWith(".7z", true) ||
                             file.name.endsWith(".rar", true) ||
@@ -4019,6 +4035,15 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             onOpenDuplicates = {
                 showDuplicateFinderDialog = true
             }
+        )
+    }
+
+    // Nearby Share Dialog (Google Files parity)
+    showNearbyShareDialog?.let { file ->
+        NearbyShareDialog(
+            viewModel = viewModel,
+            fileToShare = File(file.path).takeIf { it.exists() },
+            onDismiss = { showNearbyShareDialog = null }
         )
     }
 
