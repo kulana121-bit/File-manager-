@@ -5,8 +5,11 @@
 # broad app keep rule below.
 
 # Disable R8's aggressive optimizations (method inlining etc.) which broke
-# the app on launch. Obfuscation/minification still applies for size.
+# the app on launch.
 -dontoptimize
+# Disable obfuscation (class/method renaming) - R8's renaming breaks the app
+# on launch (proven by nuclear test). Shrinking stays enabled for size.
+-dontobfuscate
 
 # 1. SLF4J / Logging
 # org.slf4j.impl.StaticLoggerBinder is an optional logging binding that slf4j-api
