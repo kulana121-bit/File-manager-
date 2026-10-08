@@ -134,9 +134,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadVaultFiles()
         loadTrashItems()
         loadStorageBreakdown()
-        // DIAGNOSTIC: Temporarily disabled (ChatGPT suggestion).
-        // If R8 release launches without this, Google Sign-In graph is the culprit.
-        // checkLastSignedInAccount()
+        // Restore Drive auto sign-in check (was disabled during R8 diagnostics, now safe)
+        checkLastSignedInAccount()
         // Securely clean up any leftover decrypted preview files from previous sessions on startup
         try {
             File(application.cacheDir, "vault_previews").deleteRecursively()
