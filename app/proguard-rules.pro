@@ -20,6 +20,8 @@
 }
 
 # --- DontWarns (prevent build failures from absent optional deps) ---
+-dontwarn net.lingala.zip4j.**
+-keep class net.lingala.zip4j.** { *; }
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 -dontwarn org.slf4j.impl.StaticMDCBinder
 -dontwarn org.slf4j.impl.StaticMarkerBinder
