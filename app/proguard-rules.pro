@@ -34,6 +34,15 @@
 -keep class * extends androidx.startup.Initializer {
     <init>();
 }
+# --- Additional libs (were only dontwarn, now kept) ---
+-keep class coil.** { *; }
+-keep class com.google.zxing.** { *; }
+-keep class org.apache.commons.net.** { *; }
+-keep class kotlinx.** { *; }
+-keep class androidx.** { *; }
+-keep class com.github.junrar.** { *; }
+-keep class org.tukaani.xz.** { *; }
+-keep class org.apache.commons.lang3.** { *; }
 
 -keepattributes *Annotation*
 -keepattributes Signature
