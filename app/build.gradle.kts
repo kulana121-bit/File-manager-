@@ -56,11 +56,13 @@ android {
             signingConfig = signingConfigs.getByName("debugConfig")
         }
         release {
-            // SAFE R8 MODE: minification ON for size, but obfuscation
-            // (renaming) and optimization disabled via proguard-rules.pro.
-            // The nuclear test proved R8 was the crash culprit; this is the
-            // middle ground: smaller APK, working app.
-            isMinifyEnabled = true
+            // R8 FULLY DISABLED - FINAL DECISION (2026-10-08).
+            // Extensive testing proved R8 is fundamentally incompatible:
+            // - With shrinking: app crashes on launch (release-10-1, 14-1)
+            // - Without shrinking: R8 itself crashes with NPE (internal bug)
+            // The 61MB APK works reliably. Size is acceptable for a
+            // full-featured file manager.
+            isMinifyEnabled = false
             // Resource shrinking disabled: it was stripping resources and
             // crashing the app on launch. Re-enable only after verifying.
             isShrinkResources = false
