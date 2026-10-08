@@ -16,6 +16,15 @@
 # Commons-lang3 references java.lang.invoke.MethodHandleProxies (absent on
 # Android). Required now that shrinking is disabled.
 -dontwarn java.lang.invoke.MethodHandleProxies
+# Additional missing classes exposed by -dontshrink (all optional deps
+# absent on Android; R8 removed these code paths when shrinking was on).
+-dontwarn java.lang.reflect.AnnotatedType
+-dontwarn javax.servlet.**
+-dontwarn org.apache.avalon.framework.**
+-dontwarn org.apache.log.**
+-dontwarn org.apache.log4j.**
+-dontwarn org.slf4j.impl.StaticMDCBinder
+-dontwarn org.slf4j.impl.StaticMarkerBinder
 
 # 1. SLF4J / Logging
 # org.slf4j.impl.StaticLoggerBinder is an optional logging binding that slf4j-api
