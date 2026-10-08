@@ -30,22 +30,15 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Generate Temporary Release Keystore
+      - name: Restore Permanent Release Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          keytool -genkeypair \
-            -v \
-            -keystore release.keystore \
-            -alias release-key \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass release123 \
-            -keypass release123 \
-            -dname "CN=Release Signing, O=Android, C=US"
+          echo "$KEYSTORE_BASE64" | base64 -d > $GITHUB_WORKSPACE/release.keystore
           echo "KEYSTORE_FILE=$GITHUB_WORKSPACE/release.keystore" >> $GITHUB_ENV
-          echo "KEYSTORE_PASSWORD=release123" >> $GITHUB_ENV
-          echo "KEY_ALIAS=release-key" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=release123" >> $GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
 
       - name: Build Release APK
         run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
