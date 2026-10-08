@@ -17,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -3087,9 +3088,15 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     showOptionsMenuDialog?.let { file ->
         AlertDialog(
             onDismissRequest = { showOptionsMenuDialog = null },
-            title = { Text(file.name, fontWeight = FontWeight.Bold, color = textPrimary) },
+            title = { Text(file.name, fontWeight = FontWeight.Bold, color = textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     TextButton(
                         onClick = {
                             showOptionsMenuDialog = null
