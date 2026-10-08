@@ -3740,6 +3740,35 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                                             if (!driveFile.isDirectory) {
+                                                // Preview button
+                                                IconButton(
+                                                    onClick = {
+                                                        Toast.makeText(context, "Loading preview...", Toast.LENGTH_SHORT).show()
+                                                        viewModel.previewDriveFile(driveFile.id, driveFile.name) { localFile ->
+                                                            if (localFile != null) {
+                                                                try {
+                                                                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                                                                        context,
+                                                                        "com.example.filesapp.fileprovider",
+                                                                        localFile
+                                                                    )
+                                                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                                                        setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+                                                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                                    }
+                                                                    context.startActivity(android.content.Intent.createChooser(intent, "Open with"))
+                                                                } catch (e: Exception) {
+                                                                    Toast.makeText(context, "Cannot preview: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            } else {
+                                                                Toast.makeText(context, "Preview failed", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(34.dp).clip(CircleShape).background(appBlue.copy(alpha = 0.1f)).bounceClick()
+                                                ) {
+                                                    Icon(Icons.Outlined.Visibility, contentDescription = "Preview", tint = appBlue, modifier = Modifier.size(18.dp))
+                                                }
                                                 IconButton(
                                                     onClick = {
                                                         viewModel.downloadDriveFileToLocal(driveFile.id, driveFile.name) { success, msg ->
