@@ -339,7 +339,13 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     val appPurple = if (isDark) Color(0xFFB58BA5) else Color(0xFF8F637E)
 
     // Warm cream background (#F7F3ED) matching the app icon; warm espresso charcoal in dark mode
-    val bgColor = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+    // Tinted with theme color for matching aesthetic
+    val baseBg = if (isDark) Color(0xFF191715) else Color(0xFFF7F3ED)
+    val bgColor = baseBg.copy(
+        red = baseBg.red * 0.92f + customAccent.red * 0.08f,
+        green = baseBg.green * 0.92f + customAccent.green * 0.08f,
+        blue = baseBg.blue * 0.92f + customAccent.blue * 0.08f
+    )
     // Glass card surface: translucent layered with glass border
     val cardColor = if (isDark) Color(0xFF24211D).copy(alpha = 0.88f) else Color(0xFFFFFFFF).copy(alpha = 0.90f)
     val cardSubtle = if (isDark) Color(0xFF2E2A25).copy(alpha = 0.82f) else Color(0xFFEFE8DD).copy(alpha = 0.85f)
@@ -605,15 +611,15 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         spotColor = if (isDark) Color.Black.copy(alpha = 0.5f) else Color(0xFF6B584D).copy(alpha = 0.12f)
                     )
                     .clip(RoundedCornerShape(32.dp))
-                    // Transparent glass base - much lower alpha for true see-through
+                    // Ultra-transparent glass base - true see-through effect
                     .background(
                         brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                             colors = if (isDark) listOf(
-                                Color(0xFF24211D).copy(alpha = 0.45f),
-                                Color(0xFF24211D).copy(alpha = 0.55f)
+                                Color(0xFF24211D).copy(alpha = 0.25f),
+                                Color(0xFF24211D).copy(alpha = 0.35f)
                             ) else listOf(
-                                Color.White.copy(alpha = 0.45f),
-                                Color(0xFFF7F3ED).copy(alpha = 0.55f)
+                                Color.White.copy(alpha = 0.25f),
+                                Color(0xFFF7F3ED).copy(alpha = 0.35f)
                             )
                         )
                     )
@@ -4581,6 +4587,91 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                     Spacer(modifier = Modifier.size(72.dp))
                                 }
                             }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = separatorColor)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Custom Color Wheel - Hue slider (soft tones only)
+                    Text(
+                        "Custom Soft Color",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textPrimary
+                    )
+                    Text(
+                        "Slide for hue - always soft pastel",
+                        fontSize = 11.sp,
+                        color = textMuted
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    var hue by remember { mutableStateOf(20f) }
+                    // Soft tone: fixed low saturation (0.45) and high lightness (0.75)
+                    val wheelColor = remember(hue) {
+                        val hsv = floatArrayOf(hue, 0.45f, 0.92f)
+                        Color(android.graphics.Color.HSVToColor(hsv))
+                    }
+
+                    // Hue gradient bar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    colors = List(7) { i ->
+                                        val h = i * 60f
+                                        Color(android.graphics.Color.HSVToColor(floatArrayOf(h, 0.45f, 0.92f)))
+                                    }
+                                )
+                            )
+                            .border(1.dp, Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                    )
+                    Slider(
+                        value = hue,
+                        onValueChange = { hue = it },
+                        valueRange = 0f..360f,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = SliderDefaults.colors(
+                            thumbColor = wheelColor,
+                            activeTrackColor = Color.Transparent,
+                            inactiveTrackColor = Color.Transparent
+                        )
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Preview of selected wheel color
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(wheelColor)
+                                .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                        )
+                        Button(
+                            onClick = {
+                                val colorLong = (0xFF000000 or wheelColor.value.toLong())
+                                // Convert to ARGB Long
+                                val a = 255
+                                val r = (wheelColor.red * 255).toInt()
+                                val g = (wheelColor.green * 255).toInt()
+                                val b = (wheelColor.blue * 255).toInt()
+                                val argb = ((a.toLong() shl 24) or (r.toLong() shl 16) or (g.toLong() shl 8) or b.toLong())
+                                viewModel.setThemeColor(argb)
+                                showThemeColorDialog = false
+                                Toast.makeText(context, "Custom theme applied!", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = wheelColor),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text("Apply", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
