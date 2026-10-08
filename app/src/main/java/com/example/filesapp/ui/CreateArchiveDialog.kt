@@ -30,11 +30,13 @@ fun CreateArchiveDialog(
     defaultName: String = "Archive",
     targetDirectory: File,
     onDismiss: () -> Unit,
-    onCreateArchive: (format: ArchiveFormat, name: String, level: CompressionLevel) -> Unit
+    onCreateArchive: (format: ArchiveFormat, name: String, level: CompressionLevel, password: String?) -> Unit
 ) {
     var archiveName by remember { mutableStateOf(defaultName) }
     var selectedFormat by remember { mutableStateOf(ArchiveFormat.ZIP) }
     var selectedLevel by remember { mutableStateOf(CompressionLevel.NORMAL) }
+    var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
 
     val appBlue = Color(0xFF8C533E)
 
@@ -118,13 +120,35 @@ fun CreateArchiveDialog(
                     fontSize = 11.sp,
                     color = Color.Gray
                 )
+
+                // Password (optional, ZIP only - ZArchiver parity)
+                if (selectedFormat == ArchiveFormat.ZIP) {
+                    Text("Password (optional):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Leave empty for no password") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (passwordVisible)
+                            androidx.compose.ui.text.input.VisualTransformation.None
+                        else
+                            androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        trailingIcon = {
+                            TextButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Text(if (passwordVisible) "Hide" else "Show", fontSize = 11.sp)
+                            }
+                        }
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     if (archiveName.isNotBlank()) {
-                        onCreateArchive(selectedFormat, archiveName.trim(), selectedLevel)
+                        val pwd = password.takeIf { it.isNotBlank() }
+                        onCreateArchive(selectedFormat, archiveName.trim(), selectedLevel, pwd)
                         onDismiss()
                     }
                 },
