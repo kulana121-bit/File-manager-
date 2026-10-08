@@ -1,78 +1,46 @@
-# R8 / ProGuard rules for FilesApp
-# NOTE: The app package is kept entirely (-keep com.example.filesapp.**).
-# A previous "simplified" ruleset obfuscated app code and caused an
-# immediate crash on launch ("Files keeps stopping"). Do NOT remove the
-# broad app keep rule below.
-
-# Disable R8's aggressive optimizations (method inlining etc.) which broke
-# the app on launch.
+# DIAGNOSTIC R8 CONFIG (ChatGPT suggestion - 2026-10-08)
+# Purpose: Isolate whether R8's shrinking phase is the crash cause.
+# -keep class ** keeps everything, but shrinking phase still runs.
+# If this launches: shrinking was removing something needed.
+# If this crashes: shrinking is NOT the cause.
 -dontoptimize
-# Disable obfuscation (class/method renaming) - R8's renaming breaks the app
-# on launch (proven by nuclear test). Shrinking stays enabled for size.
 -dontobfuscate
-# Disable code shrinking (dead code removal) - R8 removes code it thinks is
-# unused but is actually needed via reflection. Last remaining suspect.
--dontshrink
-# Commons-lang3 references java.lang.invoke.MethodHandleProxies (absent on
-# Android). Required now that shrinking is disabled.
+
+# Keep every program class, but DO NOT use -dontshrink.
+-keep class ** { *; }
+
+-keepattributes *Annotation*
+-keepattributes Signature
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod
+
+-printusage build/outputs/logs/r8-usage.txt
+
+# --- DontWarns (prevent build failures from absent optional deps) ---
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+-dontwarn org.slf4j.impl.StaticMDCBinder
+-dontwarn org.slf4j.impl.StaticMarkerBinder
 -dontwarn java.lang.invoke.MethodHandleProxies
-# Additional missing classes exposed by -dontshrink (all optional deps
-# absent on Android; R8 removed these code paths when shrinking was on).
 -dontwarn java.lang.reflect.AnnotatedType
 -dontwarn javax.servlet.**
 -dontwarn org.apache.avalon.framework.**
 -dontwarn org.apache.log.**
 -dontwarn org.apache.log4j.**
--dontwarn org.slf4j.impl.StaticMDCBinder
--dontwarn org.slf4j.impl.StaticMarkerBinder
-
-# 1. SLF4J / Logging
-# org.slf4j.impl.StaticLoggerBinder is an optional logging binding that slf4j-api
-# references statically at compile time (via LoggerFactory.bind()).
-# The app relies on the default fallback (no-op/NOP logger); suppressing is safe.
--dontwarn org.slf4j.impl.StaticLoggerBinder
-
-# 2. KEEP THE ENTIRE APP PACKAGE - prevents R8 from obfuscating app code.
-# Jetpack Compose, Navigation, ViewModels and DI rely on reflection and
-# compiler-generated code that breaks when app classes are renamed/removed.
--keep class com.example.filesapp.** { *; }
--keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod
-
-# 3. Gson & Google Play Services / API Client
+-dontwarn com.google.api.client.**
+-dontwarn com.google.api.services.drive.**
+-dontwarn org.apache.http.**
+-dontwarn androidx.compose.**
+-dontwarn kotlinx.coroutines.**
+-dontwarn coil.**
+-dontwarn org.apache.commons.compress.**
+-dontwarn org.tukaani.xz.**
+-dontwarn com.github.junrar.**
+-dontwarn org.apache.commons.net.**
+-dontwarn com.tom_roush.pdfbox.**
+-dontwarn com.google.zxing.**
+-dontwarn androidx.work.**
+# Gson & Google API Client keeps (needed for Drive JSON parsing)
 -keepclassmembers class * {
     @com.google.api.client.util.Key <fields>;
     @com.google.gson.annotations.SerializedName <fields>;
 }
--keep class com.google.api.client.** { *; }
--keep class com.google.api.services.drive.** { *; }
--keep class com.google.gson.** { *; }
--dontwarn com.google.api.client.**
--dontwarn com.google.api.services.drive.**
--dontwarn org.apache.http.**
-
-# 4. Jetpack Compose (extra safety on top of consumer rules)
--dontwarn androidx.compose.**
-
-# 5. Kotlin Coroutines
--dontwarn kotlinx.coroutines.**
-
-# 6. Coil Image Loader
--dontwarn coil.**
-
-# 7. Apache Commons Compress & XZ & Junrar
--dontwarn org.apache.commons.compress.**
--dontwarn org.tukaani.xz.**
--dontwarn com.github.junrar.**
-
-# 8. Commons Net (FTP)
--dontwarn org.apache.commons.net.**
-
-# 9. PDFBox Android
-# References desktop Java AWT classes absent on Android; suppressing is required.
--dontwarn com.tom_roush.pdfbox.**
-
-# 10. ZXing QR Code
--dontwarn com.google.zxing.**
-
-# 11. WorkManager
--dontwarn androidx.work.**
