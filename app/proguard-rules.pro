@@ -10,6 +10,9 @@
 # Disable obfuscation (class/method renaming) - R8's renaming breaks the app
 # on launch (proven by nuclear test). Shrinking stays enabled for size.
 -dontobfuscate
+# Disable code shrinking (dead code removal) - R8 removes code it thinks is
+# unused but is actually needed via reflection. Last remaining suspect.
+-dontshrink
 
 # 1. SLF4J / Logging
 # org.slf4j.impl.StaticLoggerBinder is an optional logging binding that slf4j-api
