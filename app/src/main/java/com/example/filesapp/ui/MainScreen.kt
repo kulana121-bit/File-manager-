@@ -328,16 +328,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
     // Dynamic Style Colors - Warm Cream & Liquid Glass Palette matching the app icon
     val isDark = uiState.isDarkMode
-    // Custom theme color (user selectable, soft tones) - lightens in dark mode for visibility
+    // Custom theme color (user selectable, soft tones)
     val customAccent = Color(uiState.themeColor)
-    val appBlue = if (isDark) customAccent.copy(alpha = 1f).let {
-        // Lighten the color for dark mode visibility
-        val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(android.graphics.Color.argb(255, (it.red * 255).toInt(), (it.green * 255).toInt(), (it.blue * 255).toInt()), hsv)
-        hsv[2] = minOf(1f, hsv[2] + 0.25f) // Increase brightness
-        hsv[1] = maxOf(0f, hsv[1] - 0.1f) // Slightly reduce saturation
-        Color(android.graphics.Color.HSVToColor(hsv))
-    } else customAccent
+    val appBlue = customAccent
     val appGreen = if (isDark) Color(0xFF86A873) else Color(0xFF5E8B49) // Muted sage green
     val appRed = if (isDark) Color(0xFFD47366) else Color(0xFFB85347) // Soft terracotta red
     val appAmber = if (isDark) Color(0xFFDCA766) else Color(0xFFC68A40) // Warm honey amber
