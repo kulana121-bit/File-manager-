@@ -13,6 +13,9 @@
 # Disable code shrinking (dead code removal) - R8 removes code it thinks is
 # unused but is actually needed via reflection. Last remaining suspect.
 -dontshrink
+# Commons-lang3 references java.lang.invoke.MethodHandleProxies (absent on
+# Android). Required now that shrinking is disabled.
+-dontwarn java.lang.invoke.MethodHandleProxies
 
 # 1. SLF4J / Logging
 # org.slf4j.impl.StaticLoggerBinder is an optional logging binding that slf4j-api
