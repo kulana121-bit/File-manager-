@@ -6,6 +6,8 @@
 
 # --- App code ---
 -keep class com.example.filesapp.** { *; }
+# Keep the Application class (crash trap must survive R8)
+-keep class com.example.filesapp.FilesApp { *; }
 
 # --- Startup path (ChatGPT suggestion) ---
 -keep class com.google.android.gms.auth.api.signin.** { *; }
