@@ -60,6 +60,10 @@ data class FileManagerUiState(
     val isLoadingApps: Boolean = false,
     val isComputingChecksum: Boolean = false,
     val checksumProgress: Float = 0f,
+    // Smart Cleaner State
+    val cleanerResult: CleanerScanResult? = null,
+    val isCleanerScanning: Boolean = false,
+    val cleanerScannedCount: Int = 0,
     val currentChecksumResult: FileChecksumResult? = null,
     // 3 More Advanced Tools State
     val isWifiServerRunning: Boolean = false,
@@ -1148,12 +1152,13 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         sevenZName: String,
         targetDir: File,
         level: CompressionLevel = CompressionLevel.NORMAL,
+        password: String? = null,
         onResult: ((Boolean) -> Unit)? = null
     ) {
         viewModelScope.launch {
             val targetFile = File(targetDir, if (sevenZName.endsWith(".7z")) sevenZName else "$sevenZName.7z")
             val success = withContext(Dispatchers.IO) {
-                archiveEngine.createSevenZArchive(filesToZip, targetFile, level)
+                archiveEngine.createSevenZArchive(filesToZip, targetFile, level, password)
             }
             loadDirectory(File(_uiState.value.currentPath))
             loadStorageBreakdown()
@@ -1316,8 +1321,45 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun deleteSelectedDuplicates(filesToDelete: List<File>, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
+    // Smart Cleaner - scans for junk files
+    fun startCleanerScan() {
+        if (_uiState.value.isCleanerScanning) return
+        _uiState.value = _uiState.value.copy(
+            isCleanerScanning = true,
+            cleanerResult = null,
+            cleanerScannedCount = 0
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = SmartCleanerEngine.scanJunk { scanned, _ ->
+                _uiState.value = _uiState.value.copy(cleanerScannedCount = scanned)
+            }
+            _uiState.value = _uiState.value.copy(
+                isCleanerScanning = false,
+                cleanerResult = result
+            )
+        }
+    }
+
+    fun cleanJunkItems(
+        items: List<JunkFileItem>,
+        onResult: (deletedCount: Int, freedBytes: Long) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val (count, freed) = SmartCleanerEngine.cleanItems(items)
+            // Refresh scan after cleaning
+            val remaining = _uiState.value.cleanerResult?.items?.filter { it.file.exists() } ?: emptyList()
+            val byCategory = remaining.groupBy { it.category }
+            _uiState.value = _uiState.value.copy(
+                cleanerResult = CleanerScanResult(remaining, remaining.sumOf { it.size }, byCategory)
+            )
+            loadStorageBreakdown()
+            withContext(Dispatchers.Main) {
+                onResult(count, freed)
+            }
+        }
+    }
+
+    fun deleteSelectedDuplicates(filesToDelete: List<File>, onResult: (Boolean, String) -> Unit) {        viewModelScope.launch {
             var successCount = 0
             withContext(Dispatchers.IO) {
                 for (file in filesToDelete) {
