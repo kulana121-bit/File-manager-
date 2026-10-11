@@ -140,6 +140,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var createFileNameInput by remember { mutableStateOf("") }
 
     var showFileDetailsDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
+    var dashboardFileToDelete by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showOpenWithDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showApkInstallerDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showTextEditorDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -599,60 +600,63 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             }
         },
         bottomBar = {
-            // True Liquid Glass Floating Pill - Transparent with reflection (API 29 safe, no RenderEffect)
+            // Floating dock: fully transparent wrapper so content shows through around the pill.
+            // ONLY the pill itself carries the liquid-glass effect (proper cutout).
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 12.dp)
-                    .shadow(
-                        elevation = if (isDark) 8.dp else 12.dp,
-                        shape = RoundedCornerShape(32.dp),
-                        ambientColor = if (isDark) Color.Black.copy(alpha = 0.4f) else Color(0xFF6B584D).copy(alpha = 0.08f),
-                        spotColor = if (isDark) Color.Black.copy(alpha = 0.5f) else Color(0xFF6B584D).copy(alpha = 0.12f)
-                    )
-                    .clip(RoundedCornerShape(32.dp))
-                    // Ultra-transparent glass base - true see-through effect
-                    .background(
-                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = if (isDark) listOf(
-                                Color(0xFF24211D).copy(alpha = 0.25f),
-                                Color(0xFF24211D).copy(alpha = 0.35f)
-                            ) else listOf(
-                                Color.White.copy(alpha = 0.25f),
-                                Color(0xFFF7F3ED).copy(alpha = 0.35f)
-                            )
-                        )
-                    )
-                    // Glass reflection highlight at top
-                    .background(
-                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = if (isDark) 0.12f else 0.35f),
-                                Color.Transparent
-                            ),
-                            startY = 0f,
-                            endY = 80f
-                        )
-                    )
-                    .border(
-                        width = 1.dp,
-                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = if (isDark) listOf(
-                                Color.White.copy(alpha = 0.30f),
-                                Color(0xFF38332D).copy(alpha = 0.4f),
-                                Color.White.copy(alpha = 0.10f)
-                            ) else listOf(
-                                Color.White.copy(alpha = 0.95f),
-                                Color(0xFFEADBCE).copy(alpha = 0.5f),
-                                Color.White.copy(alpha = 0.50f)
-                            )
-                        ),
-                        shape = RoundedCornerShape(32.dp)
-                    )
+                    .background(Color.Transparent)
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .shadow(
+                            elevation = if (isDark) 8.dp else 12.dp,
+                            shape = RoundedCornerShape(32.dp),
+                            ambientColor = if (isDark) Color.Black.copy(alpha = 0.4f) else Color(0xFF6B584D).copy(alpha = 0.08f),
+                            spotColor = if (isDark) Color.Black.copy(alpha = 0.5f) else Color(0xFF6B584D).copy(alpha = 0.12f)
+                        )
+                        .clip(RoundedCornerShape(32.dp))
+                        // Ultra-transparent glass base - true see-through effect
+                        .background(
+                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = if (isDark) listOf(
+                                    Color(0xFF24211D).copy(alpha = 0.25f),
+                                    Color(0xFF24211D).copy(alpha = 0.35f)
+                                ) else listOf(
+                                    Color.White.copy(alpha = 0.25f),
+                                    Color(0xFFF7F3ED).copy(alpha = 0.35f)
+                                )
+                            )
+                        )
+                        // Glass reflection highlight at top
+                        .background(
+                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = if (isDark) 0.12f else 0.35f),
+                                    Color.Transparent
+                                ),
+                                startY = 0f,
+                                endY = 80f
+                            )
+                        )
+                        .border(
+                            width = 1.dp,
+                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = if (isDark) listOf(
+                                    Color.White.copy(alpha = 0.30f),
+                                    Color(0xFF38332D).copy(alpha = 0.4f),
+                                    Color.White.copy(alpha = 0.10f)
+                                ) else listOf(
+                                    Color.White.copy(alpha = 0.95f),
+                                    Color(0xFFEADBCE).copy(alpha = 0.5f),
+                                    Color.White.copy(alpha = 0.50f)
+                                )
+                            ),
+                            shape = RoundedCornerShape(32.dp)
+                        )
                         .padding(horizontal = 6.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
@@ -733,7 +737,9 @@ fun MainScreen(viewModel: FileManagerViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                // Only top padding: content scrolls behind the floating dock
+                // (proper cutout - dock floats over content, area around it stays clear)
+                .padding(top = paddingValues.calculateTopPadding())
         ) {
             AnimatedContent(
                 targetState = activeBottomNav,
@@ -1298,7 +1304,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
 
-                                val recents = uiState.realFiles.take(4)
+                                val recents = uiState.recentFiles.take(4)
                                 if (recents.isEmpty()) {
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1330,23 +1336,29 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                         .fillMaxWidth()
                                                         .clip(RoundedCornerShape(18.dp))
                                                         .bounceClick()
-                                                        .clickable {
-                                                            val ext = file.name.substringAfterLast('.', "").lowercase()
-                                                            when (ext) {
-                                                                "png", "jpg", "jpeg", "webp", "gif" -> showImageViewerDialog = file
-                                                                "mp4", "mkv" -> showVideoPlayerDialog = file
-                                                                "mp3", "wav", "m4a" -> showAudioPlayerDialog = file
-                                                                "pdf" -> showPdfViewerDialog = file
-                                                                "html", "htm" -> showHtmlViewerDialog = file
-                                                                "apk" -> showApkInstallerDialog = file
-                                                                "txt", "json", "kt", "java", "xml", "js", "css", "md" -> {
-                                                                    val f = File(file.path)
-                                                                    textEditorContent = if (f.exists() && f.canRead()) f.readText() else "Empty file"
-                                                                    showTextEditorDialog = file
+                                                        .combinedClickable(
+                                                            onClick = {
+                                                                val ext = file.name.substringAfterLast('.', "").lowercase()
+                                                                when (ext) {
+                                                                    "png", "jpg", "jpeg", "webp", "gif" -> showImageViewerDialog = file
+                                                                    "mp4", "mkv" -> showVideoPlayerDialog = file
+                                                                    "mp3", "wav", "m4a" -> showAudioPlayerDialog = file
+                                                                    "pdf" -> showPdfViewerDialog = file
+                                                                    "html", "htm" -> showHtmlViewerDialog = file
+                                                                    "apk" -> showApkInstallerDialog = file
+                                                                    "txt", "json", "kt", "java", "xml", "js", "css", "md" -> {
+                                                                        val f = File(file.path)
+                                                                        textEditorContent = if (f.exists() && f.canRead()) f.readText() else "Empty file"
+                                                                        showTextEditorDialog = file
+                                                                    }
+                                                                    else -> showFileDetailsDialog = file
                                                                 }
-                                                                else -> showFileDetailsDialog = file
+                                                            },
+                                                            onLongClick = {
+                                                                // Long-press: ask to delete
+                                                                dashboardFileToDelete = file
                                                             }
-                                                        }
+                                                        )
                                                         .padding(12.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -1408,7 +1420,8 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                             }
 
                             item {
-                                Spacer(modifier = Modifier.height(24.dp))
+                                // Bottom clearance so last content isn't hidden behind the floating dock
+                                Spacer(modifier = Modifier.height(110.dp))
                             }
                         }
                     }
@@ -1424,10 +1437,88 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(horizontal = 20.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                contentPadding = PaddingValues(bottom = 110.dp)
                             ) {
                             item {
                                 Spacer(modifier = Modifier.height(48.dp))
+                                // Multi-select action bar
+                                if (uiState.isMultiSelectMode) {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = appBlue.copy(alpha = 0.12f),
+                                        border = BorderStroke(1.dp, appBlue.copy(alpha = 0.3f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                IconButton(
+                                                    onClick = { viewModel.clearSelection() },
+                                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(cardColor)
+                                                ) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Clear", tint = textPrimary, modifier = Modifier.size(18.dp))
+                                                }
+                                                Text(
+                                                    "${uiState.selectedFiles.size} selected",
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = textPrimary
+                                                )
+                                            }
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                IconButton(
+                                                    onClick = {
+                                                        // Share selected
+                                                        val uris = uiState.selectedFiles.mapNotNull { path ->
+                                                            try {
+                                                                androidx.core.content.FileProvider.getUriForFile(
+                                                                    context,
+                                                                    "com.example.filesapp.fileprovider",
+                                                                    java.io.File(path)
+                                                                )
+                                                            } catch (e: Exception) { null }
+                                                        }
+                                                        if (uris.isNotEmpty()) {
+                                                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+                                                                type = "*/*"
+                                                                putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, ArrayList(uris))
+                                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                            }
+                                                            context.startActivity(android.content.Intent.createChooser(intent, "Share files"))
+                                                        }
+                                                        viewModel.clearSelection()
+                                                    },
+                                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(appBlue.copy(alpha = 0.15f))
+                                                ) {
+                                                    Icon(Icons.Outlined.Share, contentDescription = "Share", tint = appBlue, modifier = Modifier.size(18.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        // Delete selected (move to trash)
+                                                        uiState.selectedFiles.forEach { path ->
+                                                            viewModel.moveToTrash(java.io.File(path))
+                                                        }
+                                                        Toast.makeText(context, "${uiState.selectedFiles.size} items moved to trash", Toast.LENGTH_SHORT).show()
+                                                        viewModel.clearSelection()
+                                                    },
+                                                    modifier = Modifier.size(36.dp).clip(CircleShape).background(appRed.copy(alpha = 0.15f))
+                                                ) {
+                                                    Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = appRed, modifier = Modifier.size(18.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
                                 if (uiState.activeCategory != null) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1670,16 +1761,37 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             items(uiState.realFolders) { folder ->
+                                                val isFolderSelected = uiState.selectedFiles.contains(folder.path)
                                                 Card(
                                                     modifier = Modifier
                                                         .width(108.dp)
                                                         .height(86.dp)
                                                         .shadow(1.dp, RoundedCornerShape(22.dp))
                                                         .bounceClick()
-                                                        .clickable { viewModel.setCurrentPath(folder.path) },
+                                                        .combinedClickable(
+                                                            onClick = {
+                                                                if (uiState.isMultiSelectMode) {
+                                                                    viewModel.toggleFileSelection(folder.path)
+                                                                } else {
+                                                                    viewModel.setCurrentPath(folder.path)
+                                                                }
+                                                            },
+                                                            onLongClick = {
+                                                                if (!uiState.isMultiSelectMode) {
+                                                                    viewModel.toggleMultiSelectMode()
+                                                                }
+                                                                viewModel.toggleFileSelection(folder.path)
+                                                            }
+                                                        ),
                                                     shape = RoundedCornerShape(22.dp),
-                                                    colors = CardDefaults.cardColors(containerColor = cardColor),
-                                                    border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = if (isFolderSelected) appBlue.copy(alpha = 0.15f) else cardColor
+                                                    ),
+                                                    border = if (isFolderSelected) {
+                                                        BorderStroke(2.dp, appBlue)
+                                                    } else if (isDark) {
+                                                        BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f))
+                                                    } else null
                                                 ) {
                                                     Box(
                                                         modifier = Modifier
@@ -1774,16 +1886,37 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                         modifier = Modifier.heightIn(max = 800.dp)
                                     ) {
                                         items(filteredFiles) { file ->
+                                            val isSelected = uiState.selectedFiles.contains(file.path)
                                             Card(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .height(150.dp)
                                                     .bounceClick()
-                                                    .clickable { onFileClick(file) },
+                                                    .combinedClickable(
+                                                        onClick = {
+                                                            if (uiState.isMultiSelectMode) {
+                                                                viewModel.toggleFileSelection(file.path)
+                                                            } else {
+                                                                onFileClick(file)
+                                                            }
+                                                        },
+                                                        onLongClick = {
+                                                            if (!uiState.isMultiSelectMode) {
+                                                                viewModel.toggleMultiSelectMode()
+                                                            }
+                                                            viewModel.toggleFileSelection(file.path)
+                                                        }
+                                                    ),
                                                 shape = RoundedCornerShape(24.dp),
-                                                colors = CardDefaults.cardColors(containerColor = cardColor),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (isSelected) appBlue.copy(alpha = 0.15f) else cardColor
+                                                ),
                                                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                                                border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
+                                                border = if (isSelected) {
+                                                    BorderStroke(2.dp, appBlue)
+                                                } else if (isDark) {
+                                                    BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f))
+                                                } else null
                                             ) {
                                                 Column(
                                                     modifier = Modifier
@@ -1853,15 +1986,36 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                 }
                             } else {
                                 items(filteredFiles) { file ->
+                                    val isSelected = uiState.selectedFiles.contains(file.path)
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .shadow(1.dp, RoundedCornerShape(24.dp))
                                             .bounceClick()
-                                            .clickable { onFileClick(file) },
+                                            .combinedClickable(
+                                                onClick = {
+                                                    if (uiState.isMultiSelectMode) {
+                                                        viewModel.toggleFileSelection(file.path)
+                                                    } else {
+                                                        onFileClick(file)
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    if (!uiState.isMultiSelectMode) {
+                                                        viewModel.toggleMultiSelectMode()
+                                                    }
+                                                    viewModel.toggleFileSelection(file.path)
+                                                }
+                                            ),
                                         shape = RoundedCornerShape(24.dp),
-                                        colors = CardDefaults.cardColors(containerColor = cardColor),
-                                        border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isSelected) appBlue.copy(alpha = 0.15f) else cardColor
+                                        ),
+                                        border = if (isSelected) {
+                                            BorderStroke(2.dp, appBlue)
+                                        } else if (isDark) {
+                                            BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f))
+                                        } else null
                                     ) {
                                         Row(
                                             modifier = Modifier
@@ -1875,13 +2029,22 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                     .size(46.dp)
                                                     .clip(CircleShape)
                                                     .background(
-                                                        if (file.name.endsWith(".pdf")) appRed.copy(alpha = 0.12f)
+                                                        if (isSelected) appBlue
+                                                        else if (file.name.endsWith(".pdf")) appRed.copy(alpha = 0.12f)
                                                         else if (file.name.endsWith(".apk")) appAmber.copy(alpha = 0.12f)
                                                         else appBlue.copy(alpha = 0.12f)
                                                     ),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                if (isMediaFile(file)) {
+                                                if (uiState.isMultiSelectMode) {
+                                                    // Selection checkbox in multi-select mode
+                                                    Icon(
+                                                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                                                        contentDescription = if (isSelected) "Selected" else "Select",
+                                                        tint = if (isSelected) Color.White else textMuted,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                } else if (isMediaFile(file)) {
                                                     AsyncImage(
                                                         model = File(file.path),
                                                         contentDescription = file.name,
@@ -4494,6 +4657,38 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showCreateFileDialog = false }) { Text("Cancel", color = textMuted) }
+            }
+        )
+    }
+
+    // Dashboard long-press delete confirmation
+    dashboardFileToDelete?.let { file ->
+        AlertDialog(
+            onDismissRequest = { dashboardFileToDelete = null },
+            title = { Text("Delete file?", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                Text(
+                    "\"${file.name}\" will be moved to trash.",
+                    fontSize = 14.sp,
+                    color = textMuted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.moveToTrash(File(file.path))
+                        Toast.makeText(context, "Moved to trash", Toast.LENGTH_SHORT).show()
+                        dashboardFileToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = appRed)
+                ) {
+                    Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dashboardFileToDelete = null }) {
+                    Text("Cancel", color = textMuted)
+                }
             }
         )
     }
