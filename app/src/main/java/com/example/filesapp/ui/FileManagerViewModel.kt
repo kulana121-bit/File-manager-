@@ -924,6 +924,13 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                     android.content.pm.PackageManager.DONT_KILL_APP
                 )
             }
+            // CRITICAL: Disable the default MainActivity launcher component,
+            // otherwise the launcher shows duplicate icons or ignores the alias
+            pm.setComponentEnabledSetting(
+                android.content.ComponentName(packageName, "$packageName.MainActivity"),
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                android.content.pm.PackageManager.DONT_KILL_APP
+            )
         } catch (e: Exception) {
             e.printStackTrace()
         }
