@@ -49,6 +49,7 @@ data class FileManagerUiState(
     val pinnedFolders: Set<String> = emptySet(),
     val starredFiles: Set<String> = emptySet(),
     val driveStatusMessage: String? = null,
+    val recentFiles: List<AndroidFileModel> = emptyList(),
     // Advanced Tools State
     val duplicateScanProgress: DuplicateScanProgress? = null,
     val duplicateGroups: List<DuplicateFileGroup> = emptyList(),
@@ -136,6 +137,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadVaultFiles()
         loadTrashItems()
         loadStorageBreakdown()
+        loadRecentFiles()
         // Restore Drive auto sign-in check (was disabled during R8 diagnostics, now safe)
         checkLastSignedInAccount()
         // Securely clean up any leftover decrypted preview files from previous sessions on startup
@@ -682,6 +684,71 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) { onResult(null) }
             }
+        }
+    }
+
+    /**
+     * Loads actual recent files from MediaStore (like Google Files).
+     * Queries images, videos, audio, and documents sorted by modification date.
+     */
+    fun loadRecentFiles(limit: Int = 20) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val recents = mutableListOf<AndroidFileModel>()
+            try {
+                val context = getApplication<Application>()
+                val projection = arrayOf(
+                    android.provider.MediaStore.Files.FileColumns.DATA,
+                    android.provider.MediaStore.Files.FileColumns.DISPLAY_NAME,
+                    android.provider.MediaStore.Files.FileColumns.SIZE,
+                    android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED,
+                    android.provider.MediaStore.Files.FileColumns.MIME_TYPE
+                )
+                // Only files (not directories), from external storage
+                val selection = "${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} = ?"
+                val selectionArgs = arrayOf(android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_FILE.toString())
+                val sortOrder = "${android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED} DESC LIMIT $limit"
+
+                context.contentResolver.query(
+                    android.provider.MediaStore.Files.getContentUri("external"),
+                    projection,
+                    selection,
+                    selectionArgs,
+                    sortOrder
+                )?.use { cursor ->
+                    val dataIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Files.FileColumns.DATA)
+                    val nameIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Files.FileColumns.DISPLAY_NAME)
+                    val sizeIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Files.FileColumns.SIZE)
+                    val dateIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED)
+                    val mimeIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Files.FileColumns.MIME_TYPE)
+
+                    while (cursor.moveToNext() && recents.size < limit) {
+                        try {
+                            val path = cursor.getString(dataIdx) ?: continue
+                            val file = java.io.File(path)
+                            if (!file.exists() || !file.isFile) continue
+                            // Skip hidden/cache files
+                            if (path.contains("/.cache/") || path.contains("/.thumbnail")) continue
+
+                            recents.add(
+                                AndroidFileModel(
+                                    id = path,
+                                    name = cursor.getString(nameIdx) ?: file.name,
+                                    path = path,
+                                    size = cursor.getLong(sizeIdx),
+                                    mimeType = cursor.getString(mimeIdx) ?: "",
+                                    dateModified = cursor.getLong(dateIdx) * 1000,
+                                    isDirectory = false
+                                )
+                            )
+                        } catch (e: Exception) {
+                            // Skip problematic entries
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            _uiState.value = _uiState.value.copy(recentFiles = recents)
         }
     }
 
