@@ -39,6 +39,86 @@
             </intent-filter>
         </activity>
 
+        <!-- Alternate app icons (6 pastel colors) - enabled via Settings -->
+        <activity-alias
+            android:name=".MainActivityBeige"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_beige"
+            android:roundIcon="@mipmap/ic_launcher_beige"
+            android:label="Files"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivitySage"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_sage"
+            android:roundIcon="@mipmap/ic_launcher_sage"
+            android:label="Files"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityBlue"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_blue"
+            android:roundIcon="@mipmap/ic_launcher_blue"
+            android:label="Files"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityPeach"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_peach"
+            android:roundIcon="@mipmap/ic_launcher_peach"
+            android:label="Files"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityGray"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_gray"
+            android:roundIcon="@mipmap/ic_launcher_gray"
+            android:label="Files"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".MainActivityLavender"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_lavender"
+            android:roundIcon="@mipmap/ic_launcher_lavender"
+            android:label="Files"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.example.filesapp.fileprovider"
