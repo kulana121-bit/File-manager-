@@ -131,6 +131,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var showDriveBrowserDialog by remember { mutableStateOf(false) }
     var showThemeColorDialog by remember { mutableStateOf(false) }
     var showAppIconDialog by remember { mutableStateOf(false) }
+    var showAllRecentsDialog by remember { mutableStateOf(false) }
     var showOptionsMenuDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showMoveFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -1297,7 +1298,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                         letterSpacing = 1.2.sp
                                     )
                                     TextButton(
-                                        onClick = { activeBottomNav = "Files" },
+                                        onClick = { showAllRecentsDialog = true },
                                         shape = CircleShape
                                     ) {
                                         Text("See All", fontSize = 12.sp, color = appBlue, fontWeight = FontWeight.Bold)
@@ -5065,6 +5066,107 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             confirmButton = {
                 TextButton(onClick = { showAppIconDialog = false }) {
                     Text("Close", color = appBlue, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
+    // All Recent Files Dialog
+    if (showAllRecentsDialog) {
+        Dialog(
+            onDismissRequest = { showAllRecentsDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .fillMaxHeight(0.8f),
+                shape = RoundedCornerShape(28.dp),
+                color = cardColor
+            ) {
+                Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Recent Files", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                        IconButton(
+                            onClick = { showAllRecentsDialog = false },
+                            modifier = Modifier.size(36.dp).clip(CircleShape).background(cardSubtle)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = textPrimary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (uiState.recentFiles.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No recent files found", color = textMuted, fontSize = 14.sp)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(uiState.recentFiles, key = { it.path }) { file ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .combinedClickable(
+                                            onClick = {
+                                                showAllRecentsDialog = false
+                                                val ext = file.name.substringAfterLast('.', "").lowercase()
+                                                when (ext) {
+                                                    "png", "jpg", "jpeg", "webp", "gif" -> showImageViewerDialog = file
+                                                    "mp4", "mkv" -> showVideoPlayerDialog = file
+                                                    "mp3", "wav", "m4a" -> showAudioPlayerDialog = file
+                                                    "pdf" -> showPdfViewerDialog = file
+                                                    else -> showFileDetailsDialog = file
+                                                }
+                                            },
+                                            onLongClick = {
+                                                showAllRecentsDialog = false
+                                                dashboardFileToDelete = file
+                                            }
+                                        )
+                                        .background(cardSubtle)
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.size(40.dp).clip(CircleShape)
+                                            .background(appBlue.copy(alpha = 0.12f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.InsertDriveFile,
+                                            contentDescription = null,
+                                            tint = appBlue,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            file.name,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "${formatFileSize(file.size)} • ${formatDate(file.dateModified)}",
+                                            fontSize = 11.sp,
+                                            color = textMuted
+                                        )
+                                    }
+                                }
+                            }
+                            item { Spacer(modifier = Modifier.height(16.dp)) }
+                        }
+                    }
                 }
             }
         )
