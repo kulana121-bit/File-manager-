@@ -130,6 +130,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var showNearbyShareDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showDriveBrowserDialog by remember { mutableStateOf(false) }
     var showThemeColorDialog by remember { mutableStateOf(false) }
+    var showAppIconDialog by remember { mutableStateOf(false) }
     var showOptionsMenuDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showMoveFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -2850,6 +2851,83 @@ fun MainScreen(viewModel: FileManagerViewModel) {
 
                                     HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = separatorColor)
 
+                                    // Match Theme with Icon toggle
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .clickable { viewModel.setMatchThemeWithIcon(!uiState.matchThemeWithIcon) }
+                                            .padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                            Box(
+                                                modifier = Modifier.size(42.dp).clip(CircleShape).background(appBlue.copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.AutoAwesome,
+                                                    contentDescription = null,
+                                                    tint = appBlue,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text("Match with Icon", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text("Theme follows app icon color", fontSize = 11.sp, color = textMuted)
+                                            }
+                                        }
+                                        Switch(
+                                            checked = uiState.matchThemeWithIcon,
+                                            onCheckedChange = { viewModel.setMatchThemeWithIcon(it) },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = appBlue)
+                                        )
+                                    }
+
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = separatorColor)
+
+                                    // App Icon Row - Choose launcher icon
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .clickable { showAppIconDialog = true }
+                                            .padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                            Box(
+                                                modifier = Modifier.size(42.dp).clip(CircleShape).background(appBlue.copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Apps,
+                                                    contentDescription = null,
+                                                    tint = appBlue,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                            Column {
+                                                Text("App Icon", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text(
+                                                    FileManagerViewModel.APP_ICONS.find { it.first == uiState.appIcon }?.second ?: "Beige",
+                                                    fontSize = 11.sp,
+                                                    color = textMuted
+                                                )
+                                            }
+                                        }
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = "Choose",
+                                            tint = textMuted,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp), color = separatorColor)
+
                                     // Duplicate Finder Row
                                     Row(
                                         modifier = Modifier
@@ -4873,6 +4951,119 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             },
             confirmButton = {
                 TextButton(onClick = { showThemeColorDialog = false }) {
+                    Text("Close", color = appBlue, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
+    // App Icon Picker Dialog - 6 pastel colors
+    if (showAppIconDialog) {
+        val iconBgs = mapOf(
+            "beige" to Color(0xFFEDE3D3),
+            "sage" to Color(0xFFB5C7B5),
+            "blue" to Color(0xFFB9CDEA),
+            "peach" to Color(0xFFF2C9A4),
+            "gray" to Color(0xFFD9D9D9),
+            "lavender" to Color(0xFFC9B8EA)
+        )
+        AlertDialog(
+            onDismissRequest = { showAppIconDialog = false },
+            title = { Text("App Icon", fontWeight = FontWeight.Bold, color = textPrimary) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Choose your launcher icon",
+                        fontSize = 13.sp,
+                        color = textMuted
+                    )
+                    val columns = 3
+                    val icons = FileManagerViewModel.APP_ICONS
+                    val rows = (icons.size + columns - 1) / columns
+                    for (row in 0 until rows) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            for (col in 0 until columns) {
+                                val index = row * columns + col
+                                if (index < icons.size) {
+                                    val (key, name, _) = icons[index]
+                                    val isSelected = uiState.appIcon == key
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .clickable {
+                                                viewModel.setAppIcon(key)
+                                                showAppIconDialog = false
+                                                Toast.makeText(
+                                                    context,
+                                                    "Icon changed to $name${if (uiState.matchThemeWithIcon) " - theme updated" else ""}",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                            .padding(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clip(RoundedCornerShape(18.dp))
+                                                .background(iconBgs[key] ?: Color.Gray)
+                                                .border(
+                                                    width = if (isSelected) 3.dp else 1.dp,
+                                                    color = if (isSelected) appBlue else Color.Gray.copy(alpha = 0.3f),
+                                                    shape = RoundedCornerShape(18.dp)
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Folder,
+                                                contentDescription = name,
+                                                tint = Color.White.copy(alpha = 0.9f),
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            if (isSelected) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.TopEnd)
+                                                        .offset(x = 4.dp, y = (-4).dp)
+                                                        .size(20.dp)
+                                                        .clip(CircleShape)
+                                                        .background(appBlue),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Check,
+                                                        contentDescription = "Selected",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(name, fontSize = 11.sp, color = textMuted, maxLines = 1)
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.size(80.dp))
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Note: Some launchers may take a moment to refresh the icon.",
+                        fontSize = 11.sp,
+                        color = textMuted
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAppIconDialog = false }) {
                     Text("Close", color = appBlue, fontWeight = FontWeight.Bold)
                 }
             }
