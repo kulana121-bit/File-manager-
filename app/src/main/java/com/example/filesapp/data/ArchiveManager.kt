@@ -127,13 +127,15 @@ object ArchiveManager {
 
     /**
      * Creates a 7Z archive with compression level (Store, Normal, Maximum).
+     * Supports optional AES password protection.
      */
     fun create7z(
         sources: List<File>,
         target7z: File,
         level: CompressionLevel = CompressionLevel.NORMAL,
+        password: String? = null,
         onProgress: (Float, String) -> Unit = { _, _ -> }
     ): Boolean {
-        return ArchiveEngine.createSevenZArchive(sources, target7z, level, onProgress)
+        return ArchiveEngine.createSevenZArchive(sources, target7z, level, password, onProgress)
     }
 }
