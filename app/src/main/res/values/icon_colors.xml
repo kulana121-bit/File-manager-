@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="icon_bg_beige">#FFEDE3D3</color>
+    <color name="icon_bg_sage">#FFB5C7B5</color>
+    <color name="icon_bg_blue">#FFB9CDEA</color>
+    <color name="icon_bg_peach">#FFF2C9A4</color>
+    <color name="icon_bg_gray">#FFD9D9D9</color>
+    <color name="icon_bg_lavender">#FFC9B8EA</color>
+</resources>
