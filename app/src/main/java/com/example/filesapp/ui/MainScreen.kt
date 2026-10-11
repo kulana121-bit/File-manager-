@@ -62,6 +62,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.example.filesapp.data.AndroidFileModel
+import com.example.filesapp.data.CleanerCategory
 import com.example.filesapp.data.InstalledAppInfo
 import com.example.filesapp.data.TrashItemModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -1010,7 +1011,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                 ),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Icon(Icons.Outlined.CleaningServices, contentDescription = null, tint = appBlue, modifier = Modifier.size(24.dp))
+                                            Icon(Icons.Outlined.DeleteSweep, contentDescription = null, tint = appBlue, modifier = Modifier.size(24.dp))
                                         }
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text("Smart Cleaner", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
@@ -5267,7 +5268,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
-                                    Icons.Outlined.CleaningServices,
+                                    Icons.Outlined.DeleteSweep,
                                     contentDescription = null,
                                     tint = textMuted,
                                     modifier = Modifier.size(64.dp)
