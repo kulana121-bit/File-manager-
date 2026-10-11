@@ -132,6 +132,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
     var showThemeColorDialog by remember { mutableStateOf(false) }
     var showAppIconDialog by remember { mutableStateOf(false) }
     var showAllRecentsDialog by remember { mutableStateOf(false) }
+    var showCleanerDialog by remember { mutableStateOf(false) }
     var showOptionsMenuDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showRenameFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
     var showMoveFileDialog by remember { mutableStateOf<AndroidFileModel?>(null) }
@@ -973,6 +974,53 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                     letterSpacing = 1.2.sp
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
+
+                                // Smart Cleaner - flagship one-tap junk cleaner
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .bounceClick()
+                                        .clickable {
+                                            showCleanerDialog = true
+                                            viewModel.startCleanerScan()
+                                        },
+                                    shape = RoundedCornerShape(26.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                    border = if (isDark) BorderStroke(1.dp, separatorColor.copy(alpha = 0.5f)) else null
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    androidx.compose.ui.graphics.Brush.linearGradient(
+                                                        colors = listOf(
+                                                            appBlue.copy(alpha = 0.25f),
+                                                            appGreen.copy(alpha = 0.25f)
+                                                        )
+                                                    )
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Outlined.CleaningServices, contentDescription = null, tint = appBlue, modifier = Modifier.size(24.dp))
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Smart Cleaner", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                            Text("Cache, WhatsApp junk, APKs & more", fontSize = 11.sp, color = textMuted)
+                                        }
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = textMuted, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
 
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(
@@ -4453,8 +4501,10 @@ fun MainScreen(viewModel: FileManagerViewModel) {
             onDismiss = { showCreateArchiveDialog = null },
             onCreateArchive = { format, name, level, password ->
                 if (format == com.example.filesapp.domain.archive.ArchiveFormat.SEVEN_Z) {
-                    viewModel.create7zArchive(fileObjs, name, targetDir, level) { success ->
-                        Toast.makeText(context, if (success) "Created '$name.7z'" else "Failed to create 7Z archive", Toast.LENGTH_SHORT).show()
+                    viewModel.create7zArchive(fileObjs, name, targetDir, level, password) { success ->
+                        val msg = if (success) "Created '$name.7z'${if (!password.isNullOrEmpty()) " (encrypted)" else ""}"
+                                  else "Failed to create 7Z archive"
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     }
                 } else {
                     viewModel.createZipArchive(fileObjs, name, targetDir, level, password) { success ->
@@ -5153,5 +5203,218 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                 }
             }
         )
+    }
+
+    // Smart Cleaner Dialog - categorized junk with one-tap clean
+    if (showCleanerDialog) {
+        var selectedCategories by remember { mutableStateOf(setOf<CleanerCategory>()) }
+        Dialog(
+            onDismissRequest = { showCleanerDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.94f)
+                    .fillMaxHeight(0.85f),
+                shape = RoundedCornerShape(28.dp),
+                color = cardColor
+            ) {
+                Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Smart Cleaner", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                            if (uiState.isCleanerScanning) {
+                                Text(
+                                    "Scanning... ${uiState.cleanerScannedCount} files",
+                                    fontSize = 12.sp,
+                                    color = textMuted
+                                )
+                            } else if (uiState.cleanerResult != null) {
+                                Text(
+                                    "${uiState.cleanerResult!!.items.size} junk items • ${formatFileSize(uiState.cleanerResult!!.totalBytes)}",
+                                    fontSize = 12.sp,
+                                    color = appBlue,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = { showCleanerDialog = false },
+                            modifier = Modifier.size(36.dp).clip(CircleShape).background(cardSubtle)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = textPrimary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (uiState.isCleanerScanning) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(color = appBlue, modifier = Modifier.size(48.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Finding junk files...", color = textMuted, fontSize = 14.sp)
+                                TextButton(onClick = { viewModel.startCleanerScan() }) {
+                                    Text("Rescan", color = appBlue)
+                                }
+                            }
+                        }
+                    } else if (uiState.cleanerResult == null) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Outlined.CleaningServices,
+                                    contentDescription = null,
+                                    tint = textMuted,
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { viewModel.startCleanerScan() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = appBlue),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Text("Start Scan", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else {
+                        val result = uiState.cleanerResult!!
+                        if (result.items.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = appGreen,
+                                        modifier = Modifier.size(64.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text("All clean! No junk found.", color = textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else {
+                            // Category list with checkboxes
+                            LazyColumn(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(CleanerCategory.values().toList()) { category ->
+                                    val catItems = result.byCategory[category] ?: emptyList()
+                                    if (catItems.isNotEmpty()) {
+                                        val catSize = catItems.sumOf { it.size }
+                                        val isChecked = selectedCategories.contains(category)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(18.dp))
+                                                .background(if (isChecked) appBlue.copy(alpha = 0.12f) else cardSubtle)
+                                                .border(
+                                                    if (isChecked) 2.dp else 0.dp,
+                                                    appBlue,
+                                                    RoundedCornerShape(18.dp)
+                                                )
+                                                .clickable {
+                                                    selectedCategories = if (isChecked) {
+                                                        selectedCategories - category
+                                                    } else {
+                                                        selectedCategories + category
+                                                    }
+                                                }
+                                                .padding(14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clip(CircleShape)
+                                                    .background(if (isChecked) appBlue else Color.Gray.copy(alpha = 0.3f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (isChecked) {
+                                                    Icon(
+                                                        Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(category.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                                Text(
+                                                    "${catItems.size} items • ${formatFileSize(catSize)}",
+                                                    fontSize = 11.sp,
+                                                    color = textMuted
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Bottom action bar
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        selectedCategories = if (selectedCategories.size == result.byCategory.keys.size) {
+                                            emptySet()
+                                        } else {
+                                            result.byCategory.keys.toSet()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Text(
+                                        if (selectedCategories.size == result.byCategory.keys.size) "Deselect All" else "Select All",
+                                        color = appBlue,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                val selectedItems = result.items.filter { selectedCategories.contains(it.category) }
+                                val selectedBytes = selectedItems.sumOf { it.size }
+                                Button(
+                                    onClick = {
+                                        viewModel.cleanJunkItems(selectedItems) { count, freed ->
+                                            Toast.makeText(
+                                                context,
+                                                "Cleaned $count items, freed ${formatFileSize(freed)}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            selectedCategories = emptySet()
+                                        }
+                                    },
+                                    enabled = selectedItems.isNotEmpty(),
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = appRed,
+                                        disabledContainerColor = Color.Gray.copy(alpha = 0.3f)
+                                    ),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Text(
+                                        "Clean ${formatFileSize(selectedBytes)}",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
