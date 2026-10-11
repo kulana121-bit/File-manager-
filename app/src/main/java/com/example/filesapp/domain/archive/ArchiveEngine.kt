@@ -646,20 +646,26 @@ object ArchiveEngine {
         sourceFiles: List<File>,
         target7zFile: File,
         level: CompressionLevel = CompressionLevel.NORMAL,
+        password: String? = null,
         onProgress: (Float, String) -> Unit = { _, _ -> }
     ): Boolean {
         target7zFile.parentFile?.mkdirs()
         return try {
-            SevenZOutputFile(target7zFile).use { sevenZOut ->
+            val sevenZOut = if (!password.isNullOrEmpty()) {
+                SevenZOutputFile(target7zFile, password.toCharArray())
+            } else {
+                SevenZOutputFile(target7zFile)
+            }
+            sevenZOut.use { sevenZ ->
                 when (level) {
                     CompressionLevel.STORE -> {
-                        sevenZOut.setContentCompression(SevenZMethod.COPY)
+                        sevenZ.setContentCompression(SevenZMethod.COPY)
                     }
                     CompressionLevel.NORMAL -> {
-                        sevenZOut.setContentCompression(SevenZMethod.LZMA2)
+                        sevenZ.setContentCompression(SevenZMethod.LZMA2)
                     }
                     CompressionLevel.MAXIMUM -> {
-                        sevenZOut.setContentMethods(listOf(SevenZMethodConfiguration(SevenZMethod.LZMA2, 9)))
+                        sevenZ.setContentMethods(listOf(SevenZMethodConfiguration(SevenZMethod.LZMA2, 9)))
                     }
                 }
 
@@ -681,17 +687,17 @@ object ArchiveEngine {
                 val total = allFilesToCompress.size.coerceAtLeast(1)
                 allFilesToCompress.forEachIndexed { index, (file, relPath) ->
                     onProgress(index.toFloat() / total, file.name)
-                    val entry = sevenZOut.createArchiveEntry(file, relPath)
-                    sevenZOut.putArchiveEntry(entry)
+                    val entry = sevenZ.createArchiveEntry(file, relPath)
+                    sevenZ.putArchiveEntry(entry)
 
                     FileInputStream(file).use { fis ->
                         val buffer = ByteArray(8192)
                         var read: Int
                         while (fis.read(buffer).also { read = it } != -1) {
-                            sevenZOut.write(buffer, 0, read)
+                            sevenZ.write(buffer, 0, read)
                         }
                     }
-                    sevenZOut.closeArchiveEntry()
+                    sevenZ.closeArchiveEntry()
                 }
             }
             onProgress(1f, "Done")
