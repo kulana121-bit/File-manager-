@@ -50,6 +50,8 @@ data class FileManagerUiState(
     val starredFiles: Set<String> = emptySet(),
     val driveStatusMessage: String? = null,
     val recentFiles: List<AndroidFileModel> = emptyList(),
+    val appIcon: String = "beige",
+    val matchThemeWithIcon: Boolean = true,
     // Advanced Tools State
     val duplicateScanProgress: DuplicateScanProgress? = null,
     val duplicateGroups: List<DuplicateFileGroup> = emptyList(),
@@ -126,6 +128,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             pinnedFolders = prefs.getStringSet("pinned_folders", null)?.toSet() ?: emptySet(),
             isDarkMode = prefs.getBoolean("is_dark_mode", false),
             themeColor = prefs.getLong("theme_color", 0xFF9E6B55),
+            appIcon = prefs.getString("app_icon", "beige") ?: "beige",
+            matchThemeWithIcon = prefs.getBoolean("match_theme_with_icon", true),
             isGridView = prefs.getBoolean("is_grid_view", false)
         )
     )
@@ -869,6 +873,74 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun setThemeColor(color: Long) {
         _uiState.value = _uiState.value.copy(themeColor = color)
         prefs.edit().putLong("theme_color", color).apply()
+    }
+
+    // App icon options with matching theme colors
+    companion object {
+        val APP_ICONS = listOf(
+            Triple("beige", "Beige", 0xFF9E6B55),
+            Triple("sage", "Sage Green", 0xFF7A9A7A),
+            Triple("blue", "Pastel Blue", 0xFF7A9ACD),
+            Triple("peach", "Peach", 0xFFD9975A),
+            Triple("gray", "Light Gray", 0xFF8A8A8A),
+            Triple("lavender", "Lavender", 0xFF9A7ACD)
+        )
+        fun iconAliasName(iconKey: String): String {
+            return when (iconKey) {
+                "beige" -> ".MainActivityBeige"
+                "sage" -> ".MainActivitySage"
+                "blue" -> ".MainActivityBlue"
+                "peach" -> ".MainActivityPeach"
+                "gray" -> ".MainActivityGray"
+                "lavender" -> ".MainActivityLavender"
+                else -> ".MainActivityBeige"
+            }
+        }
+    }
+
+    fun setAppIcon(iconKey: String) {
+        _uiState.value = _uiState.value.copy(appIcon = iconKey)
+        prefs.edit().putString("app_icon", iconKey).apply()
+
+        // Switch launcher icon via activity-alias
+        try {
+            val context = getApplication<Application>()
+            val pm = context.packageManager
+            val packageName = context.packageName
+            APP_ICONS.forEach { (key, _, _) ->
+                val alias = iconAliasName(key)
+                val state = if (key == iconKey) {
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                } else {
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                }
+                pm.setComponentEnabledSetting(
+                    android.content.ComponentName(packageName, packageName + alias),
+                    state,
+                    android.content.pm.PackageManager.DONT_KILL_APP
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // If matching theme with icon, update theme color to icon's color
+        if (_uiState.value.matchThemeWithIcon) {
+            APP_ICONS.find { it.first == iconKey }?.let { (_, _, color) ->
+                setThemeColor(color)
+            }
+        }
+    }
+
+    fun setMatchThemeWithIcon(match: Boolean) {
+        _uiState.value = _uiState.value.copy(matchThemeWithIcon = match)
+        prefs.edit().putBoolean("match_theme_with_icon", match).apply()
+        // If enabling, immediately apply current icon's color
+        if (match) {
+            APP_ICONS.find { it.first == _uiState.value.appIcon }?.let { (_, _, color) ->
+                setThemeColor(color)
+            }
+        }
     }
 
     fun toggleGridView() {
