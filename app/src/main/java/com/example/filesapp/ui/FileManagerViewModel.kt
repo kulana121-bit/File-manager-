@@ -703,16 +703,14 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
                     android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED,
                     android.provider.MediaStore.Files.FileColumns.MIME_TYPE
                 )
-                // Only files (not directories), from external storage
-                val selection = "${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} = ?"
-                val selectionArgs = arrayOf(android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_FILE.toString())
-                val sortOrder = "${android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED} DESC LIMIT $limit"
+                // Query all files from external storage, sorted by most recent
+                val sortOrder = "${android.provider.MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
 
                 context.contentResolver.query(
                     android.provider.MediaStore.Files.getContentUri("external"),
                     projection,
-                    selection,
-                    selectionArgs,
+                    null,
+                    null,
                     sortOrder
                 )?.use { cursor ->
                     val dataIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Files.FileColumns.DATA)
