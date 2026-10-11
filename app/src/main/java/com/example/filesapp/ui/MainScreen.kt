@@ -2039,7 +2039,7 @@ fun MainScreen(viewModel: FileManagerViewModel) {
                                                 if (uiState.isMultiSelectMode) {
                                                     // Selection checkbox in multi-select mode
                                                     Icon(
-                                                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                                                        imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                                                         contentDescription = if (isSelected) "Selected" else "Select",
                                                         tint = if (isSelected) Color.White else textMuted,
                                                         modifier = Modifier.size(24.dp)
